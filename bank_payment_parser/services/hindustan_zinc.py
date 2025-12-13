@@ -58,18 +58,27 @@ class HindustanZincParser(BaseParser):
 	
 	def _extract_payment_document_no(self) -> Optional[str]:
 		"""Extract payment document number."""
-		# Try various keywords
+		# Try various keywords - handle both inline and multiline formats
 		keywords = [
-			r"Payment\s+Advice\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"Payment\s+Document\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"Advice\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"Document\s+No[\.:]?\s*([A-Z0-9\-]+)",
+			# Pattern: "Payment Doc No : \n 2070401637" (multiline)
+			r"Payment\s+Doc\s+No[\.:]?\s*:?\s*\n\s*([A-Z0-9\-]+)",
+			# Pattern: "Payment Document No: 2070401637" (inline)
+			r"Payment\s+Document\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
+			# Pattern: "Payment Advice No: 2070401637"
+			r"Payment\s+Advice\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
+			# Pattern: "Advice No: 2070401637"
+			r"Advice\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
+			# Pattern: "Document No: 2070401637"
+			r"Document\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
 		]
 		
 		for pattern in keywords:
-			match = re.search(pattern, self.raw_text, re.IGNORECASE)
+			match = re.search(pattern, self.raw_text, re.IGNORECASE | re.MULTILINE)
 			if match:
-				return match.group(1).strip()
+				doc_no = match.group(1).strip()
+				# Validate: Document number is typically 6-20 alphanumeric characters
+				if len(doc_no) >= 6 and len(doc_no) <= 20:
+					return doc_no
 		
 		return None
 	
@@ -247,33 +256,51 @@ class HindustanZincParser(BaseParser):
 	def _extract_beneficiary_name(self) -> Optional[str]:
 		"""Extract beneficiary name."""
 		keywords = [
-			r"Beneficiary\s+Name[\.:]?\s*([^\n]+)",
-			r"Beneficiary[\.:]?\s*([^\n]+)",
-			r"Payee\s+Name[\.:]?\s*([^\n]+)",
+			# Pattern: "Beneficiary Name : \n VAAMAN ENGINEERS INDIA LIMITED" (multiline)
+			r"Beneficiary\s+Name[\.:]?\s*:?\s*\n\s*([^\n]+)",
+			# Pattern: "Beneficiary Name: VAAMAN ENGINEERS INDIA LIMITED" (inline)
+			r"Beneficiary\s+Name[\.:]?\s*:?\s*([^\n]+)",
+			# Pattern: "Beneficiary: VAAMAN ENGINEERS INDIA LIMITED"
+			r"Beneficiary[\.:]?\s*:?\s*([^\n]+)",
+			# Pattern: "Payee Name: VAAMAN ENGINEERS INDIA LIMITED"
+			r"Payee\s+Name[\.:]?\s*:?\s*([^\n]+)",
 		]
 		
 		for pattern in keywords:
-			match = re.search(pattern, self.raw_text, re.IGNORECASE)
+			match = re.search(pattern, self.raw_text, re.IGNORECASE | re.MULTILINE)
 			if match:
 				name = match.group(1).strip()
-				# Clean up common suffixes
+				# Clean up common suffixes and extra whitespace
 				name = re.sub(r'[\.:]+$', '', name)
-				return name
+				name = re.sub(r'\s+', ' ', name)  # Normalize whitespace
+				# Exclude very short matches (likely false positives)
+				if len(name) >= 3:
+					return name
 		
 		return None
 	
 	def _extract_beneficiary_account_no(self) -> Optional[str]:
 		"""Extract beneficiary account number."""
 		keywords = [
-			r"Beneficiary\s+Account\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"Account\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"Beneficiary\s+A/c\s+No[\.:]?\s*([A-Z0-9\-]+)",
+			# Pattern: "Beneficiary Account No : \n 922030044694311" (multiline)
+			r"Beneficiary\s+Account\s+No[\.:]?\s*:?\s*\n\s*([A-Z0-9\-]+)",
+			# Pattern: "Beneficiary Account No: 922030044694311" (inline)
+			r"Beneficiary\s+Account\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
+			# Pattern: "Account No: 922030044694311"
+			r"Account\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
+			# Pattern: "Beneficiary A/c No: 922030044694311"
+			r"Beneficiary\s+A/c\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
+			# Pattern: "A/c No: 922030044694311"
+			r"A/c\s+No[\.:]?\s*:?\s*([A-Z0-9\-]+)",
 		]
 		
 		for pattern in keywords:
-			match = re.search(pattern, self.raw_text, re.IGNORECASE)
+			match = re.search(pattern, self.raw_text, re.IGNORECASE | re.MULTILINE)
 			if match:
-				return match.group(1).strip()
+				account_no = match.group(1).strip()
+				# Validate: Account number is typically 9-20 alphanumeric characters
+				if len(account_no) >= 9 and len(account_no) <= 20:
+					return account_no
 		
 		return None
 	
