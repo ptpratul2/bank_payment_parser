@@ -127,7 +127,7 @@ function show_upload_dialog(frm) {
 	});
 	
 	// Setup file input handler
-	setup_file_input(dialog);
+	setup_file_input(dialog, frm);
 	
 	dialog.show();
 }
@@ -135,46 +135,58 @@ function show_upload_dialog(frm) {
 /**
  * Setup file input handler
  */
-function setup_file_input(dialog) {
+function setup_file_input(dialog, frm) {
 	const file_input = dialog.$wrapper.find('#bulk-file-input')[0];
 	const file_list = dialog.$wrapper.find('#file-list')[0];
 	const selected_files = [];
 	
+	if (!file_input || !file_list) {
+		console.error('File input or file list element not found');
+		return;
+	}
+	
 	// Click handler
 	file_input.addEventListener('change', function(e) {
-		handle_files(e.target.files, selected_files, file_list);
+		if (e.target.files && e.target.files.length > 0) {
+			handle_files(e.target.files, selected_files, file_list);
+		}
 	});
 	
 	// Drag and drop
 	const upload_area = dialog.$wrapper.find('.bulk-upload-area')[0];
 	
-	upload_area.addEventListener('dragover', function(e) {
-		e.preventDefault();
-		e.stopPropagation();
-		upload_area.style.borderColor = '#8dcdff';
-		upload_area.style.backgroundColor = '#f0f9ff';
-	});
-	
-	upload_area.addEventListener('dragleave', function(e) {
-		e.preventDefault();
-		e.stopPropagation();
-		upload_area.style.borderColor = '#d1d8dd';
-		upload_area.style.backgroundColor = '';
-	});
-	
-	upload_area.addEventListener('drop', function(e) {
-		e.preventDefault();
-		e.stopPropagation();
-		upload_area.style.borderColor = '#d1d8dd';
-		upload_area.style.backgroundColor = '';
+	if (upload_area) {
+		upload_area.addEventListener('dragover', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			upload_area.style.borderColor = '#8dcdff';
+			upload_area.style.backgroundColor = '#f0f9ff';
+		});
 		
-		if (e.dataTransfer.files.length > 0) {
-			handle_files(e.dataTransfer.files, selected_files, file_list);
-		}
-	});
+		upload_area.addEventListener('dragleave', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			upload_area.style.borderColor = '#d1d8dd';
+			upload_area.style.backgroundColor = '';
+		});
+		
+		upload_area.addEventListener('drop', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			upload_area.style.borderColor = '#d1d8dd';
+			upload_area.style.backgroundColor = '';
+			
+			if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+				handle_files(e.dataTransfer.files, selected_files, file_list);
+			}
+		});
+	}
 	
 	// Store selected files in dialog
 	dialog.selected_files = selected_files;
+	
+	// Update file list display initially
+	update_file_list(selected_files, file_list);
 }
 
 /**
@@ -240,14 +252,26 @@ function upload_files(frm, dialog) {
 	const files = dialog.selected_files;
 	
 	if (!files || files.length === 0) {
-		frappe.msgprint(__('Please select at least one PDF file'));
+		frappe.msgprint({
+			title: __('No Files Selected'),
+			message: __('Please select at least one PDF file'),
+			indicator: 'orange'
+		});
 		return;
 	}
 	
 	if (!frm.doc.customer) {
-		frappe.msgprint(__('Please select a customer'));
+		frappe.msgprint({
+			title: __('Customer Required'),
+			message: __('Please select a customer'),
+			indicator: 'orange'
+		});
 		return;
 	}
+	
+	// Disable the button to prevent double-click
+	dialog.get_primary_btn().prop('disabled', true);
+	dialog.get_primary_btn().text(__('Uploading...'));
 	
 	// Use existing record if saved, otherwise create new
 	const bulk_upload_name = frm.doc.name || null;
@@ -276,8 +300,23 @@ function upload_files(frm, dialog) {
 						upload_file_contents(frm, frm.doc.name, files, dialog);
 					});
 				} else {
-					frappe.msgprint(__('Error creating bulk upload record'));
+					dialog.get_primary_btn().prop('disabled', false);
+					dialog.get_primary_btn().text(__('Upload & Process'));
+					frappe.msgprint({
+						title: __('Error'),
+						message: __('Error creating bulk upload record: {0}', [r.message?.error || 'Unknown error']),
+						indicator: 'red'
+					});
 				}
+			},
+			error: function(r) {
+				dialog.get_primary_btn().prop('disabled', false);
+				dialog.get_primary_btn().text(__('Upload & Process'));
+				frappe.msgprint({
+					title: __('Error'),
+					message: __('Error creating bulk upload record: {0}', [r.message || 'Unknown error']),
+					indicator: 'red'
+				});
 			}
 		});
 	}
@@ -331,10 +370,13 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 			data: form_data,
 			processData: false,
 			contentType: false,
+			headers: {
+				'X-Frappe-CSRF-Token': frappe.csrf_token
+			},
 			success: function(r) {
 				uploaded++;
 				
-				if (r.message && r.message.file_url) {
+				if (r && r.message && r.message.file_url) {
 					// Add file to bulk upload item
 					frappe.call({
 						method: 'bank_payment_parser.api.bulk_upload.add_file_to_bulk_upload',
@@ -348,19 +390,23 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 							upload_next(index + 1);
 						},
 						error: function(add_r) {
+							console.error('Error adding file to bulk upload:', add_r);
 							upload_errors.push(file.name);
 							upload_next(index + 1);
 						}
 					});
 				} else {
+					console.error('Upload response missing file_url:', r);
 					upload_errors.push(file.name);
 					upload_next(index + 1);
 				}
 			},
 			error: function(r) {
 				uploaded++;
+				const error_msg = r.responseJSON?.message?.message || r.responseJSON?.message || r.responseText || 'Unknown error';
+				console.error('Error uploading file:', file.name, error_msg);
 				upload_errors.push(file.name);
-				frappe.log_error(__('Error uploading {0}: {1}', [file.name, r.responseJSON?.message?.message || 'Unknown error']));
+				frappe.log_error(__('Error uploading {0}: {1}', [file.name, error_msg]));
 				upload_next(index + 1);
 			}
 		});
