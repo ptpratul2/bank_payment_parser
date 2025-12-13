@@ -1,0 +1,18 @@
+{
+  "name": "bank_payment_parser",
+  "version": "1.0.0",
+  "description": "Scalable bank payment advice PDF parser with customer-specific parsing",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ptpratul2/bank_payment_parser.git"
+  },
+  "author": "Frappe",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ptpratul2/bank_payment_parser/issues"
+  },
+  "homepage": "https://github.com/ptpratul2/bank_payment_parser#readme",
+  "dependencies": {},
+  "devDependencies": {}
+}
