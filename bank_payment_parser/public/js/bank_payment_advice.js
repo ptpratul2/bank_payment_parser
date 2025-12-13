@@ -82,8 +82,23 @@ function parse_pdf(frm) {
 				// Update parse status
 				frm.set_value('parse_status', 'Parsed');
 				
-				// Add invoice details
-				if (data.invoice_no && data.invoice_no.length > 0) {
+				// Add invoice details from invoice_table_data (4 combined columns)
+				if (data.invoice_table_data && data.invoice_table_data.length > 0) {
+					frm.clear_table('invoices');
+					const total_amount = data.payment_amount || 0;
+					const amount_per_invoice = total_amount / data.invoice_table_data.length;
+					
+					data.invoice_table_data.forEach((invoice_row) => {
+						const row = frm.add_child('invoices');
+						row.invoice_number_pf = invoice_row.invoice_number_pf || '';
+						row.invoice_date_advanced_adjusted = invoice_row.invoice_date_advanced_adjusted || '';
+						row.tds_wct = invoice_row.tds_wct || 0.0;
+						row.other_deductions_security_retention = invoice_row.other_deductions_security_retention || 0.0;
+						row.amount = amount_per_invoice;
+					});
+					frm.refresh_field('invoices');
+				} else if (data.invoice_no && data.invoice_no.length > 0) {
+					// Fallback to old format if invoice_table_data is not available
 					frm.clear_table('invoices');
 					const invoice_nos = Array.isArray(data.invoice_no) ? data.invoice_no : [data.invoice_no];
 					const invoice_dates = Array.isArray(data.invoice_date) ? data.invoice_date : 
@@ -91,10 +106,14 @@ function parse_pdf(frm) {
 					
 					invoice_nos.forEach((inv_no, idx) => {
 						const row = frm.add_child('invoices');
-						row.invoice_number = inv_no;
+						row.invoice_number_pf = inv_no + ' / 0.00';
 						if (idx < invoice_dates.length) {
-							row.invoice_date = invoice_dates[idx];
+							row.invoice_date_advanced_adjusted = invoice_dates[idx] + ' / 0.00';
+						} else {
+							row.invoice_date_advanced_adjusted = ' / 0.00';
 						}
+						row.tds_wct = 0.0;
+						row.other_deductions_security_retention = 0.0;
 						row.amount = data.payment_amount / invoice_nos.length;
 					});
 					frm.refresh_field('invoices');
