@@ -111,12 +111,17 @@ class HindustanZincParser(BaseParser):
 			r"Bank\s+Reference\s+No[\.:]?\s*([A-Z0-9\-]+)",
 			r"Reference\s+No[\.:]?\s*([A-Z0-9\-]+)",
 			r"Ref\s+No[\.:]?\s*([A-Z0-9\-]+)",
+			# Handle "Bank Ref No : 1352908332" with colon and spaces
+			r"Bank\s+Ref\s+No\s*[\.:]?\s*([A-Z0-9\-]+)",
 		]
 		
 		for pattern in keywords:
-			match = re.search(pattern, self.raw_text, re.IGNORECASE)
+			match = re.search(pattern, self.raw_text, re.IGNORECASE | re.MULTILINE)
 			if match:
-				return match.group(1).strip()
+				ref_no = match.group(1).strip()
+				# Validate: Bank ref is typically 6-20 alphanumeric characters
+				if len(ref_no) >= 6 and len(ref_no) <= 20:
+					return ref_no
 		
 		return None
 	
