@@ -248,8 +248,34 @@ function upload_files(frm, dialog) {
 function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 	let uploaded = 0;
 	const total = files.length;
+	let upload_errors = [];
 	
-	files.forEach((file, index) => {
+	// Upload files sequentially to avoid overwhelming the server
+	function upload_next(index) {
+		if (index >= total) {
+			// All files processed
+			dialog.hide();
+			frm.reload_doc();
+			
+			if (upload_errors.length > 0) {
+				frappe.msgprint({
+					title: __('Upload Complete with Errors'),
+					message: __('{0} file(s) uploaded successfully. {1} file(s) failed.', [
+						total - upload_errors.length,
+						upload_errors.length
+					]),
+					indicator: 'orange'
+				});
+			} else {
+				frappe.show_alert({
+					message: __('{0} file(s) uploaded successfully', [total]),
+					indicator: 'green'
+				});
+			}
+			return;
+		}
+		
+		const file = files[index];
 		const form_data = new FormData();
 		form_data.append('file', file);
 		form_data.append('is_private', 1);
@@ -258,12 +284,13 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 		form_data.append('docname', bulk_upload_name);
 		form_data.append('fieldname', 'pdf_file');
 		
-		frappe.call({
-			method: 'frappe.handler.upload_file',
-			args: form_data,
+		$.ajax({
+			url: '/api/method/upload_file',
+			type: 'POST',
+			data: form_data,
 			processData: false,
 			contentType: false,
-			callback: function(r) {
+			success: function(r) {
 				uploaded++;
 				
 				if (r.message && r.message.file_url) {
@@ -276,30 +303,30 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 							file_name: file.name
 						},
 						callback: function(add_r) {
-							if (uploaded === total) {
-								// All files uploaded, reload form
-								dialog.hide();
-								frm.reload_doc();
-								frappe.show_alert({
-									message: __('{0} file(s) uploaded successfully', [total]),
-									indicator: 'green'
-								});
-							}
+							// Continue with next file
+							upload_next(index + 1);
+						},
+						error: function(add_r) {
+							upload_errors.push(file.name);
+							upload_next(index + 1);
 						}
 					});
+				} else {
+					upload_errors.push(file.name);
+					upload_next(index + 1);
 				}
 			},
 			error: function(r) {
 				uploaded++;
-				frappe.msgprint(__('Error uploading {0}: {1}', [file.name, r.message || 'Unknown error']));
-				
-				if (uploaded === total) {
-					dialog.hide();
-					frm.reload_doc();
-				}
+				upload_errors.push(file.name);
+				frappe.log_error(__('Error uploading {0}: {1}', [file.name, r.responseJSON?.message?.message || 'Unknown error']));
+				upload_next(index + 1);
 			}
 		});
-	});
+	}
+	
+	// Start uploading
+	upload_next(0);
 }
 
 /**
