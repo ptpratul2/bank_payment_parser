@@ -148,16 +148,24 @@ def process_single_pdf(bulk_upload_name: str, item_name: str, file_url: str, cus
 		payment_advice_doc.insert(ignore_permissions=True)
 		frappe.db.commit()
 		
-		# Update child item with success
-		item.parse_status = "Success"
-		item.parsed_document = payment_advice_doc.name
-		item.parser_used = parsed_data.get("parser_used", "Unknown")
-		item.error_message = ""
-		item.save(ignore_permissions=True)
+		# Update child item with success - must update through parent
+		bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
+		bulk_upload.reload()
+		
+		# Find and update the child item
+		for child_item in bulk_upload.items:
+			if child_item.name == item_name:
+				child_item.parse_status = "Success"
+				child_item.parsed_document = payment_advice_doc.name
+				child_item.parser_used = parsed_data.get("parser_used", "Unknown")
+				child_item.error_message = ""
+				break
+		
+		# Save parent to persist child changes
+		bulk_upload.save(ignore_permissions=True)
 		frappe.db.commit()
 		
 		# Update parent status
-		bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
 		bulk_upload.update_status()
 		
 		frappe.logger().info(
@@ -175,20 +183,28 @@ def process_single_pdf(bulk_upload_name: str, item_name: str, file_url: str, cus
 			message=f"Error processing PDF {item_name}: {error_message}\n\n{traceback_str}"
 		)
 		
-		# Update child item with failure
+		# Update child item with failure - must update through parent
 		try:
-			item = frappe.get_doc("Bank Payment Bulk Upload Item", item_name)
-			item.parse_status = "Failed"
-			item.error_message = error_message[:500]  # Limit error message length
-			item.parsed_document = ""
-			item.save(ignore_permissions=True)
+			bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
+			bulk_upload.reload()
+			
+			# Find and update the child item
+			for child_item in bulk_upload.items:
+				if child_item.name == item_name:
+					child_item.parse_status = "Failed"
+					child_item.error_message = error_message[:500]  # Limit error message length
+					child_item.parsed_document = ""
+					child_item.parser_used = ""
+					break
+			
+			# Save parent to persist child changes
+			bulk_upload.save(ignore_permissions=True)
 			frappe.db.commit()
 			
 			# Update parent status
-			bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
 			bulk_upload.update_status()
 		except Exception as update_error:
 			frappe.log_error(
-				message=f"Error updating item status: {str(update_error)}",
-				title="Bulk Upload Status Update Error"
+				title="Bulk Upload Status Update Error",
+				message=f"Error updating item status: {str(update_error)}\n\n{frappe.get_traceback()}"
 			)
