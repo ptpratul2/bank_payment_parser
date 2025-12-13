@@ -112,37 +112,12 @@ def create_payment_advice(file_url: str, customer: str = None, use_ocr: bool = F
 	
 		if invoice_table_data:
 			# Use structured data from parser (includes all columns)
-			# Calculate amount per invoice: (Total Payment Amount - Total Deductions) / Number of Invoices
-			# Or if deductions are zero, divide total equally
-			total_deductions = sum(
-				row.get("tds", 0) + row.get("other_deductions", 0) + row.get("pf", 0) + 
-				row.get("advanced_adjusted", 0) + row.get("wct", 0) + row.get("security_retention", 0)
-				for row in invoice_table_data
-			)
-			
-			if total_deductions == 0:
-				# No deductions, divide total payment amount equally
-				amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
-			else:
-				# Calculate net amount per invoice: (Total - Deductions) / Number of Invoices
-				net_amount = total_amount - total_deductions
-				amount_per_invoice = net_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
+			# Calculate amount per invoice: Total Payment Amount / Number of Invoices
+			# This matches the PDF format where amount is the payment amount divided equally
+			amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
 			
 			for invoice_row in invoice_table_data:
 				if invoice_row.get("invoice_number"):
-					# Calculate invoice-specific amount: (Total - This Invoice's Deductions) / Number of Invoices
-					invoice_deductions = (
-						invoice_row.get("tds", 0) + invoice_row.get("other_deductions", 0) + 
-						invoice_row.get("pf", 0) + invoice_row.get("advanced_adjusted", 0) + 
-						invoice_row.get("wct", 0) + invoice_row.get("security_retention", 0)
-					)
-					
-					if total_deductions == 0:
-						invoice_amount = amount_per_invoice
-					else:
-						# Amount = (Total Payment / Number of Invoices) - This Invoice's Deductions
-						invoice_amount = (total_amount / len(invoice_table_data)) - invoice_deductions
-					
 					doc.append("invoices", {
 						"invoice_number": invoice_row.get("invoice_number"),
 						"invoice_date": invoice_row.get("invoice_date"),
@@ -152,7 +127,7 @@ def create_payment_advice(file_url: str, customer: str = None, use_ocr: bool = F
 						"advanced_adjusted": invoice_row.get("advanced_adjusted", 0.0),
 						"wct": invoice_row.get("wct", 0.0),
 						"security_retention": invoice_row.get("security_retention", 0.0),
-						"amount": invoice_amount
+						"amount": amount_per_invoice  # Total payment amount divided equally
 					})
 	else:
 		# Fallback to simple list extraction
