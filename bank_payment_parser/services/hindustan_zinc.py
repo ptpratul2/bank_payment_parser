@@ -186,48 +186,81 @@ class HindustanZincParser(BaseParser):
 		return None
 	
 	def _extract_invoice_table_data(self) -> List[Dict[str, Any]]:
-		"""Extract invoice data from table format, pairing invoice numbers with dates and amounts."""
+		"""Extract invoice data from table format with all columns: Invoice Number, Invoice date, TDS, Other Deductions, PF, Advanced Adjusted, WCT, Security/Retention."""
 		invoice_rows = []
 		
 		# Find the invoice table section
 		# Pattern: "Invoice Number" header followed by separator line and rows
-		table_pattern = r"Invoice\s+Number.*?Invoice\s+date.*?\n.*?_{10,}.*?\n(.*?)(?:\n_{10,}|\n\n|$)"
+		# The table has 8 columns: Invoice Number, Invoice date, TDS, Other Deductions, PF, Advanced Adjusted, WCT, Security/Retention
+		table_pattern = r"Invoice\s+Number.*?Invoice\s+date.*?TDS.*?Other\s+Deductions.*?PF.*?Advanced\s+Adjusted.*?WCT.*?Security/Retention.*?_{10,}.*?\n(.*?)(?:\n_{10,}|\n\n|$)"
 		table_match = re.search(table_pattern, self.raw_text, re.IGNORECASE | re.DOTALL)
 		
 		if table_match:
 			table_text = table_match.group(1)
-			# Split into lines and process each row
+			# Split into lines - each invoice takes 2 lines (first line: invoice number + date + TDS + Other Deductions, second line: PF + Advanced Adjusted + WCT + Security/Retention)
 			lines = [line.strip() for line in table_text.split('\n') if line.strip()]
 			
-			for line in lines:
-				# Pattern: Invoice number (alphanumeric with dashes) followed by date and amounts
-				# Format: "VRJ2526-0935        07/11/2025          0.00                0.00..."
-				# Handle both formats: with dashes (VRJ2526-0935) and without (5105856007)
-				row_match = re.match(r'([A-Z0-9\-]+)\s+(\d{1,2}[\./\-]\d{1,2}[\./\-]\d{2,4})\s+(.*)', line)
-				if row_match:
-					invoice_no = row_match.group(1).strip()
-					date_str = row_match.group(2).strip()
-					amounts_str = row_match.group(3).strip()
+			# Process lines in pairs (each invoice is 2 lines)
+			i = 0
+			while i < len(lines):
+				line1 = lines[i] if i < len(lines) else ""
+				line2 = lines[i + 1] if i + 1 < len(lines) else ""
+				
+				# Parse first line: Invoice Number, Invoice date, TDS, Other Deductions
+				# Format: "VRJ2526-0935        07/11/2025          0.00                0.00"
+				line1_match = re.match(r'([A-Z0-9\-]+)\s+(\d{1,2}[\./\-]\d{1,2}[\./\-]\d{2,4})\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)', line1)
+				
+				if line1_match:
+					invoice_no = line1_match.group(1).strip()
+					date_str = line1_match.group(2).strip()
+					tds_str = line1_match.group(3).strip()
+					other_deductions_str = line1_match.group(4).strip()
 					
-					# Normalize date
-					normalized_date = self.normalize_date(date_str)
+					# Parse second line: PF, Advanced Adjusted, WCT, Security/Retention
+					# Format: "0.00                0.00                0.00                0.00"
+					line2_match = re.match(r'([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)', line2)
 					
-					# Extract all numeric amounts from the row (including decimals)
-					# Pattern matches: 0.00, 1,457,656.00, etc.
-					amounts = re.findall(r'([\d,]+\.?\d*)', amounts_str)
-					# Convert to float and find the largest non-zero amount (likely the invoice amount)
-					amount_values = [float(amt.replace(',', '')) for amt in amounts if amt]
-					# Filter out zeros and get the max, or use 0 if all are zero
-					non_zero_amounts = [amt for amt in amount_values if amt > 0]
-					invoice_amount = max(non_zero_amounts) if non_zero_amounts else 0.0
-					
-					# Only add if we have a valid invoice number
-					if invoice_no and len(invoice_no) >= 3:
-						invoice_rows.append({
-							"invoice_number": invoice_no,
-							"invoice_date": normalized_date,
-							"amount": invoice_amount
-						})
+					if line2_match:
+						pf_str = line2_match.group(1).strip()
+						advanced_adjusted_str = line2_match.group(2).strip()
+						wct_str = line2_match.group(3).strip()
+						security_retention_str = line2_match.group(4).strip()
+						
+						# Normalize date
+						normalized_date = self.normalize_date(date_str)
+						
+						# Convert amounts to float
+						tds = self.normalize_amount(tds_str)
+						other_deductions = self.normalize_amount(other_deductions_str)
+						pf = self.normalize_amount(pf_str)
+						advanced_adjusted = self.normalize_amount(advanced_adjusted_str)
+						wct = self.normalize_amount(wct_str)
+						security_retention = self.normalize_amount(security_retention_str)
+						
+						# Calculate total amount (sum of all columns, or payment amount minus deductions)
+						# For now, we'll calculate as: TDS + Other Deductions + PF + Advanced Adjusted + WCT + Security/Retention
+						# But typically amount = payment - deductions, so we'll set amount to 0 and let it be calculated
+						total_amount = tds + other_deductions + pf + advanced_adjusted + wct + security_retention
+						
+						# Only add if we have a valid invoice number
+						if invoice_no and len(invoice_no) >= 3:
+							invoice_rows.append({
+								"invoice_number": invoice_no,
+								"invoice_date": normalized_date,
+								"tds": tds,
+								"other_deductions": other_deductions,
+								"pf": pf,
+								"advanced_adjusted": advanced_adjusted,
+								"wct": wct,
+								"security_retention": security_retention,
+								"amount": total_amount  # This will be recalculated based on payment amount
+							})
+						
+						i += 2  # Move to next invoice (skip both lines)
+					else:
+						i += 1  # Try next line if second line doesn't match
+				else:
+					i += 1  # Try next line if first line doesn't match
 		
 		# If table parsing didn't work, fall back to simple extraction
 		if not invoice_rows:
@@ -251,6 +284,12 @@ class HindustanZincParser(BaseParser):
 				invoice_rows.append({
 					"invoice_number": inv,
 					"invoice_date": None,
+					"tds": 0.0,
+					"other_deductions": 0.0,
+					"pf": 0.0,
+					"advanced_adjusted": 0.0,
+					"wct": 0.0,
+					"security_retention": 0.0,
 					"amount": 0.0
 				})
 		

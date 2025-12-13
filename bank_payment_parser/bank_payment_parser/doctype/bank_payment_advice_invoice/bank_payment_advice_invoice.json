@@ -10,6 +10,12 @@
  "field_order": [
   "invoice_number",
   "invoice_date",
+  "tds",
+  "other_deductions",
+  "pf",
+  "advanced_adjusted",
+  "wct",
+  "security_retention",
   "amount"
  ],
  "fields": [
@@ -25,6 +31,36 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Invoice Date"
+  },
+  {
+   "fieldname": "tds",
+   "fieldtype": "Currency",
+   "label": "TDS"
+  },
+  {
+   "fieldname": "other_deductions",
+   "fieldtype": "Currency",
+   "label": "Other Deductions"
+  },
+  {
+   "fieldname": "pf",
+   "fieldtype": "Currency",
+   "label": "PF"
+  },
+  {
+   "fieldname": "advanced_adjusted",
+   "fieldtype": "Currency",
+   "label": "Advanced Adjusted"
+  },
+  {
+   "fieldname": "wct",
+   "fieldtype": "Currency",
+   "label": "WCT"
+  },
+  {
+   "fieldname": "security_retention",
+   "fieldtype": "Currency",
+   "label": "Security/Retention"
   },
   {
    "fieldname": "amount",
