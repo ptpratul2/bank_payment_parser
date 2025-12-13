@@ -182,27 +182,42 @@ function setup_file_input(dialog, frm) {
 		});
 	}
 	
-	// Store selected files in dialog
+	// Store selected files in dialog - use a closure to maintain reference
 	dialog.selected_files = selected_files;
 	
 	// Update file list display initially
 	update_file_list(selected_files, file_list);
+	
+	// Debug: Log when files are selected
+	console.log('Files selected:', selected_files.length);
 }
 
 /**
  * Handle selected files
  */
 function handle_files(files, selected_files, file_list) {
+	let added = 0;
 	Array.from(files).forEach(file => {
 		if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
 			// Check if already selected
 			if (!selected_files.find(f => f.name === file.name && f.size === file.size)) {
 				selected_files.push(file);
+				added++;
 			}
+		} else {
+			console.warn('Skipping non-PDF file:', file.name);
 		}
 	});
 	
-	update_file_list(selected_files, file_list);
+	if (added > 0) {
+		update_file_list(selected_files, file_list);
+		console.log('Added', added, 'PDF file(s). Total:', selected_files.length);
+	} else if (files.length > 0) {
+		frappe.show_alert({
+			message: __('No new PDF files to add'),
+			indicator: 'orange'
+		});
+	}
 }
 
 /**
@@ -249,12 +264,15 @@ function update_file_list(files, file_list) {
  * Upload files and add to bulk upload record
  */
 function upload_files(frm, dialog) {
-	const files = dialog.selected_files;
+	// Get files from dialog - ensure it's an array
+	const files = dialog.selected_files || [];
+	
+	console.log('Upload button clicked. Files selected:', files.length);
 	
 	if (!files || files.length === 0) {
 		frappe.msgprint({
 			title: __('No Files Selected'),
-			message: __('Please select at least one PDF file'),
+			message: __('Please select at least one PDF file. Click "Select Files" or drag and drop PDF files.'),
 			indicator: 'orange'
 		});
 		return;
