@@ -4,6 +4,7 @@
  "creation": "2025-01-15 10:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
+ "name": "Bank Payment Advice Invoice",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
