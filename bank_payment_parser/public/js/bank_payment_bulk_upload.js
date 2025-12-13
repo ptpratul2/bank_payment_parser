@@ -39,19 +39,18 @@ frappe.ui.form.on('Bank Payment Bulk Upload', {
 	onload: function(frm) {
 		// Set default customer if available
 		if (frm.is_new() && !frm.doc.customer) {
-			// Try to get last used customer from user preferences
-			frappe.db.get_value('User', frappe.session.user, 'last_customer_used', function(r) {
-				if (r && r.last_customer_used) {
-					frm.set_value('customer', r.last_customer_used);
-				}
-			});
+			// Try to get last used customer from localStorage
+			const lastCustomer = localStorage.getItem('bank_payment_parser_last_customer');
+			if (lastCustomer) {
+				frm.set_value('customer', lastCustomer);
+			}
 		}
 	},
 	
 	customer: function(frm) {
-		// Save customer preference
+		// Save customer preference to localStorage
 		if (frm.doc.customer) {
-			frappe.db.set_value('User', frappe.session.user, 'last_customer_used', frm.doc.customer);
+			localStorage.setItem('bank_payment_parser_last_customer', frm.doc.customer);
 		}
 	}
 });
