@@ -47,12 +47,10 @@ def enqueue_bulk_processing(bulk_upload_name: str, reprocess: bool = False):
 			queue="long",
 			job_name=f"Parse PDF: {item.file_name or item.name}",
 			timeout=300,  # 5 minutes per file
-			kwargs={
-				"bulk_upload_name": bulk_upload_name,
-				"item_name": item.name,
-				"file_url": item.pdf_file,
-				"customer": bulk_upload.customer
-			}
+			bulk_upload_name=bulk_upload_name,
+			item_name=item.name,
+			file_url=item.pdf_file,
+			customer=bulk_upload.customer
 		)
 	
 	frappe.logger().info(
