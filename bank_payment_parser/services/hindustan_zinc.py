@@ -122,18 +122,48 @@ class HindustanZincParser(BaseParser):
 	
 	def _extract_utr_rrn_no(self) -> Optional[str]:
 		"""Extract UTR/RRN number."""
+		# Try most specific patterns first
 		keywords = [
-			r"UTR/RRN\s+no[\.:]?\s*([A-Z0-9\-]+)",
-			r"UTR\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"RRN\s+No[\.:]?\s*([A-Z0-9\-]+)",
-			r"UTR[\.:]?\s*([A-Z0-9\-]+)",
-			r"RRN[\.:]?\s*([A-Z0-9\-]+)",
+			# Pattern: "vide UTR/RRN no HDFCR52025120390803069" - most specific
+			r"vide\s+UTR\s*/\s*RRN\s+no\s+([A-Z0-9]{10,30})",
+			# Pattern: "UTR/RRN no HDFCR52025120390803069" - exact match
+			r"UTR\s*/\s*RRN\s+no\s+([A-Z0-9]{10,30})",
+			# Pattern: "UTR/RRN no: ABC123" with colon
+			r"UTR\s*/\s*RRN\s+no[\.:]?\s+([A-Z0-9]{10,30})",
+			# Pattern: "UTR No: ABC123" or "RRN No: ABC123"
+			r"UTR\s+No[\.:]?\s+([A-Z0-9]{10,30})",
+			r"RRN\s+No[\.:]?\s+([A-Z0-9]{10,30})",
+			# Pattern: "UTR: ABC123" or "UTR/ ABC123" (without "no")
+			r"UTR[/:]?\s+([A-Z0-9]{10,30})",
+			r"RRN[/:]?\s+([A-Z0-9]{10,30})",
+			# Pattern: UTR on separate line
+			r"UTR[/:]?\s*\n\s*([A-Z0-9]{10,30})",
+			r"RRN[/:]?\s*\n\s*([A-Z0-9]{10,30})",
 		]
 		
 		for pattern in keywords:
-			match = re.search(pattern, self.raw_text, re.IGNORECASE)
+			match = re.search(pattern, self.raw_text, re.IGNORECASE | re.MULTILINE)
 			if match:
-				return match.group(1).strip()
+				utr = match.group(1).strip()
+				# Validate: UTR/RRN is typically 10-30 alphanumeric characters
+				# Exclude common false positives
+				if len(utr) >= 10 and len(utr) <= 30 and utr.lower() not in ['no', 'yes', 'na', 'n/a', 'not']:
+					return utr
+		
+		# Fallback: Look for patterns like HDFCR52025120390803069 (bank prefix + numbers)
+		# This handles cases where UTR format is: BANKCODE + numbers
+		bank_utr_pattern = r"\b([A-Z]{3,}[0-9]{10,})\b"
+		matches = re.findall(bank_utr_pattern, self.raw_text)
+		for match in matches:
+			# Check if it's near UTR/RRN keywords (within 100 chars)
+			match_pos = self.raw_text.find(match)
+			if match_pos > 0:
+				context_start = max(0, match_pos - 100)
+				context_end = min(len(self.raw_text), match_pos + len(match) + 100)
+				context = self.raw_text[context_start:context_end]
+				if re.search(r"UTR|RRN", context, re.IGNORECASE):
+					if len(match) >= 10 and len(match) <= 30:
+						return match
 		
 		return None
 	

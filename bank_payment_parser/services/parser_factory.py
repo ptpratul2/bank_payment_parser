@@ -15,6 +15,7 @@ from bank_payment_parser.services.generic_parser import GenericParser
 # Format: "customer_name": ParserClass
 PARSER_REGISTRY = {
 	"Hindustan Zinc India Ltd": HindustanZincParser,
+	"Hindustan Zinc India Limited": HindustanZincParser,
 	"Hindustan Zinc": HindustanZincParser,
 	"HZL": HindustanZincParser,
 	# Add more customer parsers here as they are implemented
@@ -44,8 +45,8 @@ def detect_customer_from_text(text: str) -> Optional[str]:
 	
 	# Check for common variations
 	customer_keywords = {
-		"HINDUSTAN ZINC": "Hindustan Zinc India Ltd",
-		"HZL": "Hindustan Zinc India Ltd",
+		"HINDUSTAN ZINC": "Hindustan Zinc India Limited",
+		"HZL": "Hindustan Zinc India Limited",
 		# Add more keyword mappings here
 	}
 	

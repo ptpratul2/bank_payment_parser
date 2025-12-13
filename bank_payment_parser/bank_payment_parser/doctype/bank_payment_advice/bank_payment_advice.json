@@ -1,11 +1,10 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "naming_series:",
- "creation": "2025-01-15 10:00:00.000000",
+ "autoname": "hash",
+ "creation": "2025-01-15 10:00:00",
  "doctype": "DocType",
  "document_type": "Document",
- "name": "Bank Payment Advice",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
@@ -74,7 +73,6 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Bank Reference No",
-   "search_index": 1,
    "unique": 1
   },
   {
@@ -82,7 +80,6 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "UTR/RRN No",
-   "search_index": 1,
    "unique": 1
   },
   {
@@ -196,10 +193,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-15 10:00:00.000000",
+ "modified": "2025-12-13 09:01:09.949695",
  "modified_by": "Administrator",
  "module": "Bank Payment Parser",
- "naming_series": "BPA-.YYYY.-",
+ "name": "Bank Payment Advice",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
@@ -230,6 +228,7 @@
    "role": "Accounts Manager"
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
