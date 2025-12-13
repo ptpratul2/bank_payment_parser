@@ -167,13 +167,12 @@ def process_single_pdf(bulk_upload_name: str, item_name: str, file_url: str, cus
 	except Exception as e:
 		# Capture error and update child item
 		error_message = str(e)
-		traceback = frappe.get_traceback()
+		traceback_str = frappe.get_traceback()
 		
 		# Log error
 		frappe.log_error(
-			message=f"Error processing PDF {item_name}: {error_message}",
 			title="Bulk Upload Processing Error",
-			traceback=traceback
+			message=f"Error processing PDF {item_name}: {error_message}\n\n{traceback_str}"
 		)
 		
 		# Update child item with failure

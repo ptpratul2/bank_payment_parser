@@ -66,7 +66,8 @@
    "fieldtype": "Select",
    "label": "Status",
    "options": "Queued\nProcessing\nCompleted\nPartial\nFailed",
-   "read_only": 1
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "uploaded_by",
