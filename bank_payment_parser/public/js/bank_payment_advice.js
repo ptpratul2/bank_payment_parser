@@ -10,13 +10,19 @@ frappe.ui.form.on('Bank Payment Advice', {
 		if (frm.doc.pdf_file && frm.doc.parse_status === 'Draft') {
 			frm.add_custom_button(__('Parse PDF'), function() {
 				parse_pdf(frm);
-			});
+			}, __('Actions'));
 		}
 		
 		// Show parser info if available
 		if (frm.doc.parser_used) {
 			frm.set_df_property('parser_used', 'description', 
 				`Parser: ${frm.doc.parser_used} (v${frm.doc.parse_version || '1.0'})`);
+		}
+		
+		// Highlight PDF file field for new documents
+		if (frm.is_new() && !frm.doc.pdf_file) {
+			frm.set_df_property('pdf_file', 'description', 
+				__('Upload the payment advice PDF file here. After upload, click "Parse PDF" button to extract data.'));
 		}
 	},
 	
@@ -25,6 +31,14 @@ frappe.ui.form.on('Bank Payment Advice', {
 		if (frm.is_new()) {
 			load_supported_customers(frm);
 		}
+	},
+	
+	pdf_file: function(frm) {
+		// Auto-parse when PDF is uploaded (optional - can be disabled)
+		// Uncomment below if you want auto-parse on upload
+		// if (frm.doc.pdf_file && frm.is_new()) {
+		// 	setTimeout(() => parse_pdf(frm), 1000);
+		// }
 	}
 });
 

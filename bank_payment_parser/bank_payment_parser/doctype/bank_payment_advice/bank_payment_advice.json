@@ -139,8 +139,7 @@
   {
    "fieldname": "pdf_file",
    "fieldtype": "Attach",
-   "label": "PDF File",
-   "read_only": 1
+   "label": "PDF File"
   },
   {
    "fieldname": "beneficiary_section",
