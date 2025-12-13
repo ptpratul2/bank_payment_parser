@@ -14,7 +14,8 @@ app_include_js = "/assets/bank_payment_parser/js/bank_payment_parser.js"
 
 # include js in doctype views
 doctype_js = {
-	"Bank Payment Advice": "public/js/bank_payment_advice.js"
+	"Bank Payment Advice": "public/js/bank_payment_advice.js",
+	"Bank Payment Bulk Upload": "public/js/bank_payment_bulk_upload.js"
 }
 
 # DocType Class

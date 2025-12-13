@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-15 10:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pdf_file",
+  "file_name",
+  "parse_status",
+  "parsed_document",
+  "error_message",
+  "parser_used"
+ ],
+ "fields": [
+  {
+   "fieldname": "pdf_file",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "PDF File",
+   "reqd": 1
+  },
+  {
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "File Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parse_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Parse Status",
+   "options": "Pending\nSuccess\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parsed_document",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Parsed Document",
+   "options": "Bank Payment Advice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parser_used",
+   "fieldtype": "Data",
+   "label": "Parser Used",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-15 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Bank Payment Parser",
+ "name": "Bank Payment Bulk Upload Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

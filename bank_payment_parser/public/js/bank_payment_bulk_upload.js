@@ -1,0 +1,361 @@
+/**
+ * Bank Payment Bulk Upload Form Scripts
+ * 
+ * Handles bulk PDF upload, multi-file selection, and background processing
+ */
+
+frappe.ui.form.on('Bank Payment Bulk Upload', {
+	refresh: function(frm) {
+		// Add bulk upload button for new documents
+		if (frm.is_new()) {
+			frm.add_custom_button(__('Upload PDFs'), function() {
+				show_bulk_upload_dialog(frm);
+			}, __('Actions'));
+		}
+		
+		// Add reprocess failed button if there are failed items
+		if (!frm.is_new() && frm.doc.status !== 'Completed') {
+			const failed_count = frm.doc.failed_count || 0;
+			if (failed_count > 0) {
+				frm.add_custom_button(__('Reprocess Failed'), function() {
+					reprocess_failed(frm);
+				}, __('Actions'));
+			}
+		}
+		
+		// Show progress indicator
+		if (frm.doc.status === 'Processing' || frm.doc.status === 'Queued') {
+			show_progress_indicator(frm);
+		}
+		
+		// Auto-refresh if processing
+		if (frm.doc.status === 'Processing') {
+			setTimeout(function() {
+				frm.reload_doc();
+			}, 5000); // Refresh every 5 seconds
+		}
+	},
+	
+	onload: function(frm) {
+		// Set default customer if available
+		if (frm.is_new() && !frm.doc.customer) {
+			// Try to get last used customer from user preferences
+			frappe.db.get_value('User', frappe.session.user, 'last_customer_used', function(r) {
+				if (r && r.last_customer_used) {
+					frm.set_value('customer', r.last_customer_used);
+				}
+			});
+		}
+	},
+	
+	customer: function(frm) {
+		// Save customer preference
+		if (frm.doc.customer) {
+			frappe.db.set_value('User', frappe.session.user, 'last_customer_used', frm.doc.customer);
+		}
+	}
+});
+
+/**
+ * Show bulk upload dialog
+ */
+function show_bulk_upload_dialog(frm) {
+	if (!frm.doc.customer) {
+		frappe.msgprint(__('Please select a customer first'));
+		return;
+	}
+	
+	const dialog = new frappe.ui.Dialog({
+		title: __('Upload Multiple PDFs'),
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `
+					<div class="bulk-upload-area" style="border: 2px dashed #d1d8dd; padding: 20px; text-align: center; border-radius: 4px; margin: 10px 0;">
+						<p style="margin: 10px 0; color: #6c7680;">
+							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 10px;">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+								<polyline points="17 8 12 3 7 8"></polyline>
+								<line x1="12" y1="3" x2="12" y2="15"></line>
+							</svg>
+							<br>
+							${__('Drag and drop PDF files here or click to browse')}
+						</p>
+						<input type="file" id="bulk-file-input" multiple accept=".pdf" style="display: none;">
+						<button class="btn btn-primary" onclick="document.getElementById('bulk-file-input').click()">
+							${__('Select Files')}
+						</button>
+					</div>
+					<div id="file-list" style="margin-top: 15px; max-height: 300px; overflow-y: auto;"></div>
+				`
+			}
+		],
+		primary_action_label: __('Upload & Process'),
+		primary_action: function() {
+			upload_files(frm, dialog);
+		}
+	});
+	
+	// Setup file input handler
+	setup_file_input(dialog);
+	
+	dialog.show();
+}
+
+/**
+ * Setup file input handler
+ */
+function setup_file_input(dialog) {
+	const file_input = dialog.$wrapper.find('#bulk-file-input')[0];
+	const file_list = dialog.$wrapper.find('#file-list')[0];
+	const selected_files = [];
+	
+	// Click handler
+	file_input.addEventListener('change', function(e) {
+		handle_files(e.target.files, selected_files, file_list);
+	});
+	
+	// Drag and drop
+	const upload_area = dialog.$wrapper.find('.bulk-upload-area')[0];
+	
+	upload_area.addEventListener('dragover', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		upload_area.style.borderColor = '#8dcdff';
+		upload_area.style.backgroundColor = '#f0f9ff';
+	});
+	
+	upload_area.addEventListener('dragleave', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		upload_area.style.borderColor = '#d1d8dd';
+		upload_area.style.backgroundColor = '';
+	});
+	
+	upload_area.addEventListener('drop', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		upload_area.style.borderColor = '#d1d8dd';
+		upload_area.style.backgroundColor = '';
+		
+		if (e.dataTransfer.files.length > 0) {
+			handle_files(e.dataTransfer.files, selected_files, file_list);
+		}
+	});
+	
+	// Store selected files in dialog
+	dialog.selected_files = selected_files;
+}
+
+/**
+ * Handle selected files
+ */
+function handle_files(files, selected_files, file_list) {
+	Array.from(files).forEach(file => {
+		if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+			// Check if already selected
+			if (!selected_files.find(f => f.name === file.name && f.size === file.size)) {
+				selected_files.push(file);
+			}
+		}
+	});
+	
+	update_file_list(selected_files, file_list);
+}
+
+/**
+ * Update file list display
+ */
+function update_file_list(files, file_list) {
+	if (files.length === 0) {
+		file_list.innerHTML = '<p style="color: #6c7680; text-align: center;">No files selected</p>';
+		return;
+	}
+	
+	let html = '<table class="table table-bordered" style="width: 100%;">';
+	html += '<thead><tr><th>File Name</th><th>Size</th><th></th></tr></thead>';
+	html += '<tbody>';
+	
+	files.forEach((file, index) => {
+		const size = (file.size / 1024).toFixed(2) + ' KB';
+		html += `
+			<tr>
+				<td>${file.name}</td>
+				<td>${size}</td>
+				<td>
+					<button class="btn btn-sm btn-danger" onclick="remove_file(${index})">
+						${__('Remove')}
+					</button>
+				</td>
+			</tr>
+		`;
+	});
+	
+	html += '</tbody></table>';
+	file_list.innerHTML = html;
+	
+	// Setup remove handlers
+	files.forEach((file, index) => {
+		window.remove_file = function(idx) {
+			files.splice(idx, 1);
+			update_file_list(files, file_list);
+		};
+	});
+}
+
+/**
+ * Upload files and create bulk upload record
+ */
+function upload_files(frm, dialog) {
+	const files = dialog.selected_files;
+	
+	if (!files || files.length === 0) {
+		frappe.msgprint(__('Please select at least one PDF file'));
+		return;
+	}
+	
+	if (!frm.doc.customer) {
+		frappe.msgprint(__('Please select a customer'));
+		return;
+	}
+	
+	frappe.call({
+		method: 'bank_payment_parser.api.bulk_upload.create_bulk_upload',
+		args: {
+			customer: frm.doc.customer,
+			files: files.map(f => ({
+				name: f.name,
+				size: f.size,
+				type: f.type
+			}))
+		},
+		freeze: true,
+		freeze_message: __('Uploading files...'),
+		callback: function(r) {
+			if (r.message && r.message.success) {
+				// Upload actual files
+				upload_file_contents(frm, r.message.bulk_upload_name, files, dialog);
+			} else {
+				frappe.msgprint(__('Error creating bulk upload record'));
+			}
+		}
+	});
+}
+
+/**
+ * Upload file contents
+ */
+function upload_file_contents(frm, bulk_upload_name, files, dialog) {
+	let uploaded = 0;
+	const total = files.length;
+	
+	files.forEach((file, index) => {
+		const form_data = new FormData();
+		form_data.append('file', file);
+		form_data.append('is_private', 1);
+		form_data.append('folder', 'Home');
+		form_data.append('doctype', 'Bank Payment Bulk Upload Item');
+		form_data.append('docname', bulk_upload_name);
+		form_data.append('fieldname', 'pdf_file');
+		
+		frappe.call({
+			method: 'frappe.handler.upload_file',
+			args: form_data,
+			processData: false,
+			contentType: false,
+			callback: function(r) {
+				uploaded++;
+				
+				if (r.message && r.message.file_url) {
+					// Add file to bulk upload item
+					frappe.call({
+						method: 'bank_payment_parser.api.bulk_upload.add_file_to_bulk_upload',
+						args: {
+							bulk_upload_name: bulk_upload_name,
+							file_url: r.message.file_url,
+							file_name: file.name
+						},
+						callback: function(add_r) {
+							if (uploaded === total) {
+								// All files uploaded, reload form
+								dialog.hide();
+								frm.reload_doc();
+								frappe.show_alert({
+									message: __('{0} file(s) uploaded successfully', [total]),
+									indicator: 'green'
+								});
+							}
+						}
+					});
+				}
+			},
+			error: function(r) {
+				uploaded++;
+				frappe.msgprint(__('Error uploading {0}: {1}', [file.name, r.message || 'Unknown error']));
+				
+				if (uploaded === total) {
+					dialog.hide();
+					frm.reload_doc();
+				}
+			}
+		});
+	});
+}
+
+/**
+ * Reprocess failed files
+ */
+function reprocess_failed(frm) {
+	frappe.confirm(
+		__('Reprocess all failed files?'),
+		function() {
+			frappe.call({
+				method: 'bank_payment_parser.api.bulk_upload.reprocess_failed',
+				args: {
+					bulk_upload_name: frm.doc.name
+				},
+				freeze: true,
+				freeze_message: __('Reprocessing failed files...'),
+				callback: function(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({
+							message: __('Reprocessing queued'),
+							indicator: 'blue'
+						});
+						frm.reload_doc();
+					}
+				}
+			});
+		}
+	);
+}
+
+/**
+ * Show progress indicator
+ */
+function show_progress_indicator(frm) {
+	const progress = frm.doc.processed_files / frm.doc.total_files * 100;
+	
+	frm.dashboard.add_indicator(
+		__('Progress: {0} / {1} files processed ({2}%)', [
+			frm.doc.processed_files,
+			frm.doc.total_files,
+			progress.toFixed(1)
+		]),
+		frm.doc.status === 'Processing' ? 'blue' : 'orange'
+	);
+	
+	if (frm.doc.success_count > 0) {
+		frm.dashboard.add_indicator(
+			__('Success: {0}', [frm.doc.success_count]),
+			'green'
+		);
+	}
+	
+	if (frm.doc.failed_count > 0) {
+		frm.dashboard.add_indicator(
+			__('Failed: {0}', [frm.doc.failed_count]),
+			'red'
+		);
+	}
+}

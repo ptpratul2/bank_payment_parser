@@ -10,6 +10,8 @@ A scalable, production-ready Frappe app for parsing customer-specific bank payme
 - ✅ **Manual Selection**: Users can manually select customer during upload
 - ✅ **OCR Support**: Optional OCR for scanned PDFs
 - ✅ **Background Processing**: Non-blocking PDF parsing
+- ✅ **Bulk Upload**: Upload and process multiple PDFs at once
+- ✅ **Queue-Based Processing**: Each PDF processed in separate background job
 - ✅ **Duplicate Prevention**: Prevents duplicate payment advice records
 - ✅ **Production Ready**: Error handling, logging, and validation
 
@@ -99,6 +101,87 @@ result = frappe.call(
 print(f"Job ID: {result['job_id']}")
 ```
 
+### Bulk Upload Workflow
+
+The app supports bulk upload and processing of multiple PDFs at once.
+
+#### Using Desk UI
+
+1. **Navigate to Bulk Upload**: Go to Bank Payment Bulk Upload list
+2. **Create New**: Click "New" to create a bulk upload record
+3. **Select Customer**: Choose the customer (required)
+4. **Upload PDFs**: Click "Upload PDFs" button
+   - Drag and drop multiple PDF files OR
+   - Click "Select Files" to browse
+5. **Submit**: Submit the document to start background processing
+6. **Monitor Progress**: Watch the status indicators:
+   - **Queued**: Files uploaded, waiting to process
+   - **Processing**: Files being processed in background
+   - **Completed**: All files processed successfully
+   - **Partial**: Some files succeeded, some failed
+   - **Failed**: All files failed
+7. **Reprocess Failed**: Click "Reprocess Failed" button to retry failed files
+
+#### API Usage
+
+```python
+# Create bulk upload
+result = frappe.call(
+    "bank_payment_parser.api.bulk_upload.create_bulk_upload",
+    customer="Hindustan Zinc India Ltd",
+    files=[
+        {"name": "file1.pdf", "size": 1024, "type": "application/pdf"},
+        {"name": "file2.pdf", "size": 2048, "type": "application/pdf"}
+    ]
+)
+
+bulk_upload_name = result["bulk_upload_name"]
+
+# Add files (after uploading via file API)
+frappe.call(
+    "bank_payment_parser.api.bulk_upload.add_file_to_bulk_upload",
+    bulk_upload_name=bulk_upload_name,
+    file_url="/files/file1.pdf",
+    file_name="file1.pdf"
+)
+
+# Submit the bulk upload document to start processing
+bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
+bulk_upload.submit()
+
+# Check status
+status = frappe.call(
+    "bank_payment_parser.api.bulk_upload.get_bulk_upload_status",
+    bulk_upload_name=bulk_upload_name
+)
+
+print(f"Status: {status['status']}")
+print(f"Processed: {status['processed_files']}/{status['total_files']}")
+print(f"Success: {status['success_count']}, Failed: {status['failed_count']}")
+
+# Reprocess failed files
+frappe.call(
+    "bank_payment_parser.api.bulk_upload.reprocess_failed",
+    bulk_upload_name=bulk_upload_name
+)
+```
+
+#### Bulk Processing Architecture
+
+- **Queue-Based**: Each PDF is processed in a separate background job
+- **Non-Blocking**: One failure doesn't stop other files from processing
+- **Status Tracking**: Real-time status updates for each file
+- **Re-Processing**: Easy retry mechanism for failed files
+- **Performance**: Handles 100+ PDFs safely with proper queue management
+
+#### Performance Notes
+
+- Each PDF is processed in a separate background job (queue: `long`)
+- Jobs have a 5-minute timeout per file
+- Processing happens asynchronously - UI remains responsive
+- Status auto-refreshes every 5 seconds during processing
+- Failed files can be reprocessed without affecting successful ones
+
 ## Architecture
 
 ### Parser Structure
@@ -112,9 +195,14 @@ bank_payment_parser/
 │   ├── generic_parser.py       # Fallback parser
 │   └── ocr_utils.py           # OCR utilities
 ├── api/
-│   └── upload.py              # Upload & parsing endpoints
+│   ├── upload.py              # Single file upload & parsing endpoints
+│   └── bulk_upload.py         # Bulk upload endpoints
+├── jobs/
+│   └── bulk_processor.py      # Background job handlers for bulk processing
 └── doctype/
-    └── bank_payment_advice/    # Main doctype
+    ├── bank_payment_advice/    # Main doctype
+    ├── bank_payment_bulk_upload/        # Bulk upload tracking
+    └── bank_payment_bulk_upload_item/    # Individual file tracking
 ```
 
 ### Strategy Pattern
