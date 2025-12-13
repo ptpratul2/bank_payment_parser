@@ -28,6 +28,9 @@ class HindustanZincParser(BaseParser):
 		Returns:
 			Dictionary with extracted fields
 		"""
+		# Extract invoice table data (structured format with amounts)
+		invoice_table_data = self._extract_invoice_table_data()
+		
 		result = {
 			"customer_name": self.customer_name,
 			"payment_document_no": self._extract_payment_document_no(),
@@ -44,7 +47,8 @@ class HindustanZincParser(BaseParser):
 			"remarks": self._extract_remarks(),
 			"raw_text": self.raw_text,
 			"parser_used": "HindustanZincParser",
-			"parse_version": self.parse_version
+			"parse_version": self.parse_version,
+			"invoice_table_data": invoice_table_data  # Structured invoice data with amounts
 		}
 		
 		# Validate required fields
@@ -181,57 +185,86 @@ class HindustanZincParser(BaseParser):
 		
 		return None
 	
-	def _extract_invoice_numbers(self) -> List[str]:
-		"""Extract invoice numbers (can be multiple)."""
-		invoices = []
+	def _extract_invoice_table_data(self) -> List[Dict[str, Any]]:
+		"""Extract invoice data from table format, pairing invoice numbers with dates and amounts."""
+		invoice_rows = []
 		
-		# Look for invoice number patterns
-		patterns = [
-			r"Invoice\s+Number[\.:]?\s*([A-Z0-9\-/]+)",
-			r"Invoice\s+No[\.:]?\s*([A-Z0-9\-/]+)",
-			r"Inv\s+No[\.:]?\s*([A-Z0-9\-/]+)",
-		]
+		# Find the invoice table section
+		# Pattern: "Invoice Number" header followed by separator line and rows
+		table_pattern = r"Invoice\s+Number.*?Invoice\s+date.*?\n.*?_{10,}.*?\n(.*?)(?:\n_{10,}|\n\n|$)"
+		table_match = re.search(table_pattern, self.raw_text, re.IGNORECASE | re.DOTALL)
 		
-		for pattern in patterns:
-			matches = re.findall(pattern, self.raw_text, re.IGNORECASE)
-			invoices.extend([m.strip() for m in matches if m.strip()])
-		
-		# Look for invoice table/rows
-		# Pattern: Invoice numbers in a table format
-		table_pattern = r"Invoice\s+Number[^\n]*\n((?:[^\n]*\n){0,10})"
-		table_match = re.search(table_pattern, self.raw_text, re.IGNORECASE)
 		if table_match:
 			table_text = table_match.group(1)
-			# Extract alphanumeric codes that look like invoice numbers
-			inv_codes = re.findall(r'\b[A-Z0-9]{6,}\b', table_text)
-			invoices.extend(inv_codes)
+			# Split into lines and process each row
+			lines = [line.strip() for line in table_text.split('\n') if line.strip()]
+			
+			for line in lines:
+				# Pattern: Invoice number (alphanumeric with dashes) followed by date and amounts
+				# Format: "VRJ2526-0935        07/11/2025          0.00                0.00..."
+				# Handle both formats: with dashes (VRJ2526-0935) and without (5105856007)
+				row_match = re.match(r'([A-Z0-9\-]+)\s+(\d{1,2}[\./\-]\d{1,2}[\./\-]\d{2,4})\s+(.*)', line)
+				if row_match:
+					invoice_no = row_match.group(1).strip()
+					date_str = row_match.group(2).strip()
+					amounts_str = row_match.group(3).strip()
+					
+					# Normalize date
+					normalized_date = self.normalize_date(date_str)
+					
+					# Extract all numeric amounts from the row (including decimals)
+					# Pattern matches: 0.00, 1,457,656.00, etc.
+					amounts = re.findall(r'([\d,]+\.?\d*)', amounts_str)
+					# Convert to float and find the largest non-zero amount (likely the invoice amount)
+					amount_values = [float(amt.replace(',', '')) for amt in amounts if amt]
+					# Filter out zeros and get the max, or use 0 if all are zero
+					non_zero_amounts = [amt for amt in amount_values if amt > 0]
+					invoice_amount = max(non_zero_amounts) if non_zero_amounts else 0.0
+					
+					# Only add if we have a valid invoice number
+					if invoice_no and len(invoice_no) >= 3:
+						invoice_rows.append({
+							"invoice_number": invoice_no,
+							"invoice_date": normalized_date,
+							"amount": invoice_amount
+						})
 		
-		# Remove duplicates and empty values
-		invoices = list(set([inv for inv in invoices if inv]))
+		# If table parsing didn't work, fall back to simple extraction
+		if not invoice_rows:
+			# Look for invoice number patterns
+			patterns = [
+				r"Invoice\s+Number[\.:]?\s*([A-Z0-9\-/]+)",
+				r"Invoice\s+No[\.:]?\s*([A-Z0-9\-/]+)",
+				r"Inv\s+No[\.:]?\s*([A-Z0-9\-/]+)",
+			]
+			
+			invoices = []
+			for pattern in patterns:
+				matches = re.findall(pattern, self.raw_text, re.IGNORECASE)
+				invoices.extend([m.strip() for m in matches if m.strip()])
+			
+			# Remove duplicates
+			invoices = list(set([inv for inv in invoices if inv]))
+			
+			# Create rows with invoice numbers only
+			for inv in invoices:
+				invoice_rows.append({
+					"invoice_number": inv,
+					"invoice_date": None,
+					"amount": 0.0
+				})
 		
-		return invoices if invoices else []
+		return invoice_rows
+	
+	def _extract_invoice_numbers(self) -> List[str]:
+		"""Extract invoice numbers (can be multiple) from table."""
+		invoice_data = self._extract_invoice_table_data()
+		return [row["invoice_number"] for row in invoice_data if row.get("invoice_number")]
 	
 	def _extract_invoice_dates(self) -> List[str]:
-		"""Extract invoice dates (can be multiple)."""
-		dates = []
-		
-		# Look for invoice date patterns
-		patterns = [
-			r"Invoice\s+Date[\.:]?\s*(\d{1,2}[\./\-]\d{1,2}[\./\-]\d{2,4})",
-			r"Inv\s+Date[\.:]?\s*(\d{1,2}[\./\-]\d{1,2}[\./\-]\d{2,4})",
-		]
-		
-		for pattern in patterns:
-			matches = re.findall(pattern, self.raw_text, re.IGNORECASE)
-			for date_str in matches:
-				normalized = self.normalize_date(date_str)
-				if normalized:
-					dates.append(normalized)
-		
-		# Remove duplicates
-		dates = list(set(dates))
-		
-		return dates if dates else []
+		"""Extract invoice dates (can be multiple) from table, paired with invoice numbers."""
+		invoice_data = self._extract_invoice_table_data()
+		return [row["invoice_date"] for row in invoice_data if row.get("invoice_date")]
 	
 	def _extract_payment_amount(self) -> float:
 		"""Extract payment amount."""

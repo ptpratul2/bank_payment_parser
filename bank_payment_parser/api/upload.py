@@ -106,34 +106,58 @@ def create_payment_advice(file_url: str, customer: str = None, use_ocr: bool = F
 	})
 	
 	# Add invoice details if available
-	invoice_nos = parsed_data.get("invoice_no", [])
-	invoice_dates = parsed_data.get("invoice_date", [])
+	# First try to use structured invoice table data (with amounts)
+	invoice_table_data = parsed_data.get("invoice_table_data", [])
+	total_amount = parsed_data.get("payment_amount", 0)
 	
-	# Normalize invoice_nos to list
-	if invoice_nos:
-		if isinstance(invoice_nos, str):
-			invoice_nos = [invoice_nos]
-		elif not isinstance(invoice_nos, list):
-			invoice_nos = []
-	
-	# Normalize invoice_dates to list
-	if invoice_dates:
-		if isinstance(invoice_dates, str):
-			invoice_dates = [invoice_dates]
-		elif not isinstance(invoice_dates, list):
-			invoice_dates = []
-	
-	if invoice_nos:
-		total_amount = parsed_data.get("payment_amount", 0)
-		amount_per_invoice = total_amount / len(invoice_nos) if len(invoice_nos) > 0 else 0
+	if invoice_table_data:
+		# Use structured data from parser (includes amounts)
+		# If amounts are all zero, divide total equally
+		total_invoice_amount = sum(row.get("amount", 0) for row in invoice_table_data)
+		if total_invoice_amount == 0 and len(invoice_table_data) > 0:
+			# All amounts are zero, divide total payment amount equally
+			amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
+		else:
+			amount_per_invoice = None  # Use amounts from table
 		
-		for idx, invoice_no in enumerate(invoice_nos):
-			if invoice_no:  # Skip empty invoice numbers
+		for invoice_row in invoice_table_data:
+			if invoice_row.get("invoice_number"):
+				invoice_amount = amount_per_invoice if amount_per_invoice is not None else invoice_row.get("amount", 0.0)
 				doc.append("invoices", {
-					"invoice_number": invoice_no,
-					"invoice_date": invoice_dates[idx] if idx < len(invoice_dates) and invoice_dates[idx] else None,
-					"amount": amount_per_invoice
+					"invoice_number": invoice_row.get("invoice_number"),
+					"invoice_date": invoice_row.get("invoice_date"),
+					"amount": invoice_amount
 				})
+	else:
+		# Fallback to simple list extraction
+		invoice_nos = parsed_data.get("invoice_no", [])
+		invoice_dates = parsed_data.get("invoice_date", [])
+		
+		# Normalize invoice_nos to list
+		if invoice_nos:
+			if isinstance(invoice_nos, str):
+				invoice_nos = [invoice_nos]
+			elif not isinstance(invoice_nos, list):
+				invoice_nos = []
+		
+		# Normalize invoice_dates to list
+		if invoice_dates:
+			if isinstance(invoice_dates, str):
+				invoice_dates = [invoice_dates]
+			elif not isinstance(invoice_dates, list):
+				invoice_dates = []
+		
+		if invoice_nos:
+			total_amount = parsed_data.get("payment_amount", 0)
+			amount_per_invoice = total_amount / len(invoice_nos) if len(invoice_nos) > 0 else 0
+			
+			for idx, invoice_no in enumerate(invoice_nos):
+				if invoice_no:  # Skip empty invoice numbers
+					doc.append("invoices", {
+						"invoice_number": invoice_no,
+						"invoice_date": invoice_dates[idx] if idx < len(invoice_dates) and invoice_dates[idx] else None,
+						"amount": amount_per_invoice
+					})
 	
 	# Save document
 	try:
