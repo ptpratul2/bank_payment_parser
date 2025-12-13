@@ -1,12 +1,13 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "naming_series:",
- "creation": "2025-01-15 10:00:00.000000",
+ "autoname": "hash",
+ "creation": "2025-01-15 10:00:00",
  "doctype": "DocType",
  "document_type": "Document",
  "editable_grid": 1,
  "engine": "InnoDB",
+ "is_submittable": 1,
  "field_order": [
   "upload_reference",
   "customer",
@@ -31,6 +32,7 @@
   {
    "fieldname": "customer",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Customer",
    "options": "Customer",
    "reqd": 1
@@ -93,11 +95,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-15 10:00:00.000000",
+ "modified": "2025-12-13 09:43:36.532186",
  "modified_by": "Administrator",
  "module": "Bank Payment Parser",
  "name": "Bank Payment Bulk Upload",
- "naming_series": "BPBU-.YYYY.-",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
@@ -123,6 +125,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

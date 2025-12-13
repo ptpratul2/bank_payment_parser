@@ -6,8 +6,8 @@
 
 frappe.ui.form.on('Bank Payment Bulk Upload', {
 	refresh: function(frm) {
-		// Add bulk upload button for new documents
-		if (frm.is_new()) {
+		// Add bulk upload button for new documents or Queued status
+		if (frm.is_new() || frm.doc.status === 'Queued') {
 			frm.add_custom_button(__('Upload PDFs'), function() {
 				show_bulk_upload_dialog(frm);
 			}, __('Actions'));
@@ -34,6 +34,15 @@ frappe.ui.form.on('Bank Payment Bulk Upload', {
 				frm.reload_doc();
 			}, 5000); // Refresh every 5 seconds
 		}
+		
+		// Ensure submit button is visible for saved documents with items
+		if (!frm.is_new() && frm.doc.docstatus === 0 && frm.doc.items && frm.doc.items.length > 0) {
+			// Submit button should be visible by default
+			// Make sure form is in editable state
+			if (frm.doc.status === 'Queued' || frm.is_dirty()) {
+				frm.enable_save();
+			}
+		}
 	},
 	
 	onload: function(frm) {
@@ -59,10 +68,32 @@ frappe.ui.form.on('Bank Payment Bulk Upload', {
  * Show bulk upload dialog
  */
 function show_bulk_upload_dialog(frm) {
+	// Ensure customer is set
 	if (!frm.doc.customer) {
-		frappe.msgprint(__('Please select a customer first'));
+		frappe.msgprint({
+			title: __('Customer Required'),
+			message: __('Please select a customer before uploading files'),
+			indicator: 'orange'
+		});
 		return;
 	}
+	
+	// Save document first if it's new
+	if (frm.is_new()) {
+		frm.save().then(function() {
+			show_upload_dialog(frm);
+		}).catch(function() {
+			frappe.msgprint(__('Please save the document first'));
+		});
+	} else {
+		show_upload_dialog(frm);
+	}
+}
+
+/**
+ * Show the actual upload dialog
+ */
+function show_upload_dialog(frm) {
 	
 	const dialog = new frappe.ui.Dialog({
 		title: __('Upload Multiple PDFs'),
@@ -203,7 +234,7 @@ function update_file_list(files, file_list) {
 }
 
 /**
- * Upload files and create bulk upload record
+ * Upload files and add to bulk upload record
  */
 function upload_files(frm, dialog) {
 	const files = dialog.selected_files;
@@ -218,27 +249,38 @@ function upload_files(frm, dialog) {
 		return;
 	}
 	
-	frappe.call({
-		method: 'bank_payment_parser.api.bulk_upload.create_bulk_upload',
-		args: {
-			customer: frm.doc.customer,
-			files: files.map(f => ({
-				name: f.name,
-				size: f.size,
-				type: f.type
-			}))
-		},
-		freeze: true,
-		freeze_message: __('Uploading files...'),
-		callback: function(r) {
-			if (r.message && r.message.success) {
-				// Upload actual files
-				upload_file_contents(frm, r.message.bulk_upload_name, files, dialog);
-			} else {
-				frappe.msgprint(__('Error creating bulk upload record'));
+	// Use existing record if saved, otherwise create new
+	const bulk_upload_name = frm.doc.name || null;
+	
+	if (bulk_upload_name) {
+		// Add files to existing record
+		upload_file_contents(frm, bulk_upload_name, files, dialog);
+	} else {
+		// Create new record first
+		frappe.call({
+			method: 'bank_payment_parser.api.bulk_upload.create_bulk_upload',
+			args: {
+				customer: frm.doc.customer,
+				files: files.map(f => ({
+					name: f.name,
+					size: f.size,
+					type: f.type
+				}))
+			},
+			freeze: true,
+			freeze_message: __('Creating bulk upload record...'),
+			callback: function(r) {
+				if (r.message && r.message.success) {
+					// Reload form with new record name, then upload files
+					frm.reload_doc().then(function() {
+						upload_file_contents(frm, frm.doc.name, files, dialog);
+					});
+				} else {
+					frappe.msgprint(__('Error creating bulk upload record'));
+				}
 			}
-		}
-	});
+		});
+	}
 }
 
 /**
