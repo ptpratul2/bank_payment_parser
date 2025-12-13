@@ -110,25 +110,25 @@ def create_payment_advice(file_url: str, customer: str = None, use_ocr: bool = F
 	invoice_table_data = parsed_data.get("invoice_table_data", [])
 	total_amount = parsed_data.get("payment_amount", 0)
 	
-		if invoice_table_data:
-			# Use structured data from parser (includes all columns)
-			# Calculate amount per invoice: Total Payment Amount / Number of Invoices
-			# This matches the PDF format where amount is the payment amount divided equally
-			amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
-			
-			for invoice_row in invoice_table_data:
-				if invoice_row.get("invoice_number"):
-					doc.append("invoices", {
-						"invoice_number": invoice_row.get("invoice_number"),
-						"invoice_date": invoice_row.get("invoice_date"),
-						"tds": invoice_row.get("tds", 0.0),
-						"other_deductions": invoice_row.get("other_deductions", 0.0),
-						"pf": invoice_row.get("pf", 0.0),
-						"advanced_adjusted": invoice_row.get("advanced_adjusted", 0.0),
-						"wct": invoice_row.get("wct", 0.0),
-						"security_retention": invoice_row.get("security_retention", 0.0),
-						"amount": amount_per_invoice  # Total payment amount divided equally
-					})
+	if invoice_table_data:
+		# Use structured data from parser (includes all columns)
+		# Calculate amount per invoice: Total Payment Amount / Number of Invoices
+		# This matches the PDF format where amount is the payment amount divided equally
+		amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
+		
+		for invoice_row in invoice_table_data:
+			if invoice_row.get("invoice_number"):
+				doc.append("invoices", {
+					"invoice_number": invoice_row.get("invoice_number"),
+					"invoice_date": invoice_row.get("invoice_date"),
+					"tds": invoice_row.get("tds", 0.0),
+					"other_deductions": invoice_row.get("other_deductions", 0.0),
+					"pf": invoice_row.get("pf", 0.0),
+					"advanced_adjusted": invoice_row.get("advanced_adjusted", 0.0),
+					"wct": invoice_row.get("wct", 0.0),
+					"security_retention": invoice_row.get("security_retention", 0.0),
+					"amount": amount_per_invoice  # Total payment amount divided equally
+				})
 	else:
 		# Fallback to simple list extraction
 		invoice_nos = parsed_data.get("invoice_no", [])
