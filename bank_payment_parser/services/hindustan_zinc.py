@@ -186,18 +186,24 @@ class HindustanZincParser(BaseParser):
 		return None
 	
 	def _extract_invoice_table_data(self) -> List[Dict[str, Any]]:
-		"""Extract invoice data from table format with all columns: Invoice Number, Invoice date, TDS, Other Deductions, PF, Advanced Adjusted, WCT, Security/Retention."""
+		"""Extract invoice data from table format with 4 combined columns:
+		1. Invoice Number / PF
+		2. Invoice Date / Advanced Adjusted
+		3. TDS / WCT
+		4. Other Deductions / Security/Retention
+		"""
 		invoice_rows = []
 		
 		# Find the invoice table section
 		# Pattern: "Invoice Number" header followed by separator line and rows
-		# The table has 8 columns: Invoice Number, Invoice date, TDS, Other Deductions, PF, Advanced Adjusted, WCT, Security/Retention
 		table_pattern = r"Invoice\s+Number.*?Invoice\s+date.*?TDS.*?Other\s+Deductions.*?PF.*?Advanced\s+Adjusted.*?WCT.*?Security/Retention.*?_{10,}.*?\n(.*?)(?:\n_{10,}|\n\n|$)"
 		table_match = re.search(table_pattern, self.raw_text, re.IGNORECASE | re.DOTALL)
 		
 		if table_match:
 			table_text = table_match.group(1)
-			# Split into lines - each invoice takes 2 lines (first line: invoice number + date + TDS + Other Deductions, second line: PF + Advanced Adjusted + WCT + Security/Retention)
+			# Split into lines - each invoice takes 2 lines
+			# Line 1: Invoice Number, Invoice Date, TDS, Other Deductions
+			# Line 2: PF, Advanced Adjusted, WCT, Security/Retention
 			lines = [line.strip() for line in table_text.split('\n') if line.strip()]
 			
 			# Process lines in pairs (each invoice is 2 lines)
@@ -237,23 +243,27 @@ class HindustanZincParser(BaseParser):
 						wct = self.normalize_amount(wct_str)
 						security_retention = self.normalize_amount(security_retention_str)
 						
-						# Calculate total amount (sum of all columns, or payment amount minus deductions)
-						# For now, we'll calculate as: TDS + Other Deductions + PF + Advanced Adjusted + WCT + Security/Retention
-						# But typically amount = payment - deductions, so we'll set amount to 0 and let it be calculated
-						total_amount = tds + other_deductions + pf + advanced_adjusted + wct + security_retention
+						# Combine into 4 fields as per user requirement:
+						# 1. Invoice Number / PF
+						invoice_number_pf = f"{invoice_no} / {pf}"
+						
+						# 2. Invoice Date / Advanced Adjusted
+						invoice_date_advanced_adjusted = f"{normalized_date} / {advanced_adjusted}"
+						
+						# 3. TDS / WCT
+						tds_wct = tds + wct  # Sum of TDS and WCT
+						
+						# 4. Other Deductions / Security/Retention
+						other_deductions_security_retention = other_deductions + security_retention  # Sum
 						
 						# Only add if we have a valid invoice number
 						if invoice_no and len(invoice_no) >= 3:
 							invoice_rows.append({
-								"invoice_number": invoice_no,
-								"invoice_date": normalized_date,
-								"tds": tds,
-								"other_deductions": other_deductions,
-								"pf": pf,
-								"advanced_adjusted": advanced_adjusted,
-								"wct": wct,
-								"security_retention": security_retention,
-								"amount": total_amount  # This will be recalculated based on payment amount
+								"invoice_number_pf": invoice_number_pf,
+								"invoice_date_advanced_adjusted": invoice_date_advanced_adjusted,
+								"tds_wct": tds_wct,
+								"other_deductions_security_retention": other_deductions_security_retention,
+								"amount": 0.0  # Will be calculated in API
 							})
 						
 						i += 2  # Move to next invoice (skip both lines)
@@ -282,14 +292,10 @@ class HindustanZincParser(BaseParser):
 			# Create rows with invoice numbers only
 			for inv in invoices:
 				invoice_rows.append({
-					"invoice_number": inv,
-					"invoice_date": None,
-					"tds": 0.0,
-					"other_deductions": 0.0,
-					"pf": 0.0,
-					"advanced_adjusted": 0.0,
-					"wct": 0.0,
-					"security_retention": 0.0,
+					"invoice_number_pf": f"{inv} / 0.00",
+					"invoice_date_advanced_adjusted": " / 0.00",
+					"tds_wct": 0.0,
+					"other_deductions_security_retention": 0.0,
 					"amount": 0.0
 				})
 		
@@ -298,12 +304,30 @@ class HindustanZincParser(BaseParser):
 	def _extract_invoice_numbers(self) -> List[str]:
 		"""Extract invoice numbers (can be multiple) from table."""
 		invoice_data = self._extract_invoice_table_data()
-		return [row["invoice_number"] for row in invoice_data if row.get("invoice_number")]
+		# Extract invoice number from combined field "Invoice Number / PF"
+		invoice_nos = []
+		for row in invoice_data:
+			invoice_number_pf = row.get("invoice_number_pf", "")
+			if invoice_number_pf:
+				# Extract invoice number part (before " / ")
+				parts = invoice_number_pf.split(" / ")
+				if parts:
+					invoice_nos.append(parts[0])
+		return invoice_nos
 	
 	def _extract_invoice_dates(self) -> List[str]:
 		"""Extract invoice dates (can be multiple) from table, paired with invoice numbers."""
 		invoice_data = self._extract_invoice_table_data()
-		return [row["invoice_date"] for row in invoice_data if row.get("invoice_date")]
+		# Extract date from combined field "Invoice Date / Advanced Adjusted"
+		dates = []
+		for row in invoice_data:
+			invoice_date_advanced = row.get("invoice_date_advanced_adjusted", "")
+			if invoice_date_advanced:
+				# Extract date part (before " / ")
+				parts = invoice_date_advanced.split(" / ")
+				if parts and parts[0]:
+					dates.append(parts[0])
+		return dates
 	
 	def _extract_payment_amount(self) -> float:
 		"""Extract payment amount."""

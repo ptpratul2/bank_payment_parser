@@ -8,59 +8,37 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "invoice_number",
-  "invoice_date",
-  "tds",
-  "other_deductions",
-  "pf",
-  "advanced_adjusted",
-  "wct",
-  "security_retention",
+  "invoice_number_pf",
+  "invoice_date_advanced_adjusted",
+  "tds_wct",
+  "other_deductions_security_retention",
   "amount"
  ],
  "fields": [
   {
-   "fieldname": "invoice_number",
+   "fieldname": "invoice_number_pf",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Invoice Number",
+   "label": "Invoice Number / PF",
    "reqd": 1
   },
   {
-   "fieldname": "invoice_date",
-   "fieldtype": "Date",
+   "fieldname": "invoice_date_advanced_adjusted",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Invoice Date"
+   "label": "Invoice Date / Advanced Adjusted"
   },
   {
-   "fieldname": "tds",
+   "fieldname": "tds_wct",
    "fieldtype": "Currency",
-   "label": "TDS"
+   "in_list_view": 1,
+   "label": "TDS / WCT"
   },
   {
-   "fieldname": "other_deductions",
+   "fieldname": "other_deductions_security_retention",
    "fieldtype": "Currency",
-   "label": "Other Deductions"
-  },
-  {
-   "fieldname": "pf",
-   "fieldtype": "Currency",
-   "label": "PF"
-  },
-  {
-   "fieldname": "advanced_adjusted",
-   "fieldtype": "Currency",
-   "label": "Advanced Adjusted"
-  },
-  {
-   "fieldname": "wct",
-   "fieldtype": "Currency",
-   "label": "WCT"
-  },
-  {
-   "fieldname": "security_retention",
-   "fieldtype": "Currency",
-   "label": "Security/Retention"
+   "in_list_view": 1,
+   "label": "Other Deductions / Security/Retention"
   },
   {
    "fieldname": "amount",
