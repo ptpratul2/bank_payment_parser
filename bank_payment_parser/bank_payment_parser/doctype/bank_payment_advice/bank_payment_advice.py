@@ -4,7 +4,7 @@ Bank Payment Advice DocType Controller
 
 import frappe
 from frappe.model.document import Document
-from bank_payment_parser.utils.validation import validate_duplicate, make_read_only
+from bank_payment_parser.bank_payment_parser.utils.validation import validate_duplicate, make_read_only
 
 
 class BankPaymentAdvice(Document):
