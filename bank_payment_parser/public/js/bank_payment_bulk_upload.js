@@ -400,6 +400,21 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 			form_data.append('fieldname', 'pdf_file');
 		}
 		
+		// Get CSRF token
+		const csrf_token = frappe.csrf_token || (frappe.boot && frappe.boot.csrf_token) || '';
+		if (!csrf_token) {
+			console.error('CSRF token not available');
+			upload_errors.push(file.name);
+			frappe.show_alert({
+				message: __('CSRF token missing. Please refresh the page and try again.'),
+				indicator: 'red'
+			}, 5);
+			upload_next(index + 1);
+			return;
+		}
+		
+		console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
+		
 		$.ajax({
 			url: '/api/method/upload_file',
 			type: 'POST',
@@ -408,7 +423,7 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 			contentType: false,
 			timeout: 300000, // 5 minutes timeout for large files
 			headers: {
-				'X-Frappe-CSRF-Token': frappe.csrf_token || frappe.boot.csrf_token
+				'X-Frappe-CSRF-Token': csrf_token
 			},
 			success: function(r) {
 				uploaded++;
