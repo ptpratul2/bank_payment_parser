@@ -19,7 +19,7 @@ def upload_file_for_bulk_upload():
 	the ALLOWED_MIMETYPES check for XML files.
 	
 	Returns:
-		File document with file_url
+		Dictionary with file_url and file_name (matching standard upload_file response format)
 	"""
 	from frappe.utils import cint
 	
@@ -37,6 +37,12 @@ def upload_file_for_bulk_upload():
 		content = file.stream.read()
 		filename = filename or file.filename
 	
+	if not filename:
+		frappe.throw(_("Filename is required"))
+	
+	if not content:
+		frappe.throw(_("File content is required"))
+	
 	# Create File document directly (bypasses MIME type check)
 	file_doc = frappe.get_doc({
 		"doctype": "File",
@@ -52,7 +58,12 @@ def upload_file_for_bulk_upload():
 	file_doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	
-	return file_doc
+	# Return in the same format as standard upload_file endpoint
+	return {
+		"file_url": file_doc.file_url,
+		"file_name": file_doc.file_name,
+		"name": file_doc.name
+	}
 
 
 @frappe.whitelist()

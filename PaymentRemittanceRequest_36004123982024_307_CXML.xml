@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE cXML SYSTEM "http://xml.cxml.org/schemas/cXML/1.2.035/PaymentRemittance.dtd">
+<cXML payloadID="1734771812530_1991550483@10.250.2.17" timestamp="2024-12-21T14:33:32+05:30" version="1.2.035" xml:lang="en-US"><Header><From><Credential
+            domain="NetworkID"><Identity>AN01052224886</Identity></Credential><Credential
+            domain=""><Identity/></Credential><Credential
+            domain="SystemID"><Identity>STZ</Identity></Credential></From><To><Credential
+                domain="NetworkID"><Identity>AN01401764241</Identity></Credential><Correspondent><Contact
+                    role="correspondent"><Name
+                    xml:lang="EN">VAAMAN ENGINEERS INDIA LIMITED</Name><Email
+                    name="routing"/><Fax
+                            name=""><TelephoneNumber><CountryCode
+            isoCountryCode="IN">IN</CountryCode><AreaOrCityCode/><Number/></TelephoneNumber></Fax></Contact></Correspondent></To><Sender><Credential domain="AribaNetworkUserId"><Identity>sysadmin@ariba.com</Identity></Credential><UserAgent>Ariba SN</UserAgent></Sender></Header>
+<Request deploymentMode="production"><PaymentRemittanceRequest><PaymentRemittanceRequestHeader paymentDate="2024-12-19T12:17:29+05:30"
+    paymentReferenceNumber="V2425/RJSK/095_(UTR- 4121972419501)"
+        paymentRemittanceID="36004123982024"><PaymentMethod
+            type="ach"/><PaymentPartner><Contact role="payer"><Name
+                    xml:lang="EN">VAAMAN ENGINEERS INDIA LIMITED</Name><PostalAddress><Street>Yashad Bhawan</Street><City>Udaipur</City><PostalCode>313004</PostalCode><Country
+            isoCountryCode="IN">IN</Country></PostalAddress></Contact></PaymentPartner><PaymentPartner><Contact
+                role="payee"><Name
+                    xml:lang="E">VAAMAN ENGINEERS INDIA LIMITED</Name><PostalAddress><Street> </Street><City
+                    cityCode="RAJSTHAN">RAJSTHAN</City><PostalCode>313001</PostalCode><Country
+        isoCountryCode="IN">IN</Country></PostalAddress><Email>info@vaaman.in</Email></Contact></PaymentPartner><Comments><Attachment><URL>cid:SCN1003266017_Paymentadvice.pdf</URL></Attachment></Comments><Extrinsic name="UTR Number - ">4121972419501</Extrinsic></PaymentRemittanceRequestHeader>
+<PaymentRemittanceSummary><NetAmount><Money currency="INR">682028</Money></NetAmount><GrossAmount><Money currency="INR">682028</Money></GrossAmount><AdjustmentAmount><Money currency="INR">0</Money></AdjustmentAmount></PaymentRemittanceSummary><RemittanceDetail lineNumber="1"><PayableInfo><PayableInvoiceInfo><InvoiceIDInfo invoiceID="V2425/RJSK/095"></InvoiceIDInfo></PayableInvoiceInfo></PayableInfo><NetAmount><Money currency="INR">682028</Money></NetAmount><GrossAmount><Money currency="INR">693787</Money></GrossAmount><AdjustmentAmount><Money currency="INR">0</Money><Modifications><Modification><AdditionalDeduction type="withholdingTax"><DeductionAmount><Money currency="INR">11759</Money></DeductionAmount></AdditionalDeduction></Modification></Modifications></AdjustmentAmount><AdjustmentAmount><Money currency="INR">0</Money><Modifications><Modification><AdditionalDeduction type="cyyy"><DeductionAmount><Money currency="INR">0</Money></DeductionAmount></AdditionalDeduction></Modification></Modifications></AdjustmentAmount><Extrinsic name="fiscalYear">2024</Extrinsic><Extrinsic name="CompanyCode">1000</Extrinsic><Extrinsic name="Adjustment ammountDetails">5100033320</Extrinsic></RemittanceDetail></PaymentRemittanceRequest></Request></cXML>

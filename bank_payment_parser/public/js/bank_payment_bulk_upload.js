@@ -406,14 +406,37 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 			success: function(r) {
 				uploaded++;
 				
-				if (r && r.message && r.message.file_url) {
+				// Handle different response formats
+				// Standard upload_file returns: {message: {file_url: "...", file_name: "..."}}
+				// Custom method returns: {message: {file_url: "...", file_name: "...", name: "..."}}
+				let file_url = null;
+				let file_name = file.name;
+				
+				if (r && r.message) {
+					// Check if message is a dict with file_url
+					if (r.message.file_url) {
+						file_url = r.message.file_url;
+						file_name = r.message.file_name || file.name;
+					}
+					// Check if message is a File document (has name and file_url properties)
+					else if (r.message.name && r.message.file_url) {
+						file_url = r.message.file_url;
+						file_name = r.message.file_name || file.name;
+					}
+					// Check if message itself is the file_url string
+					else if (typeof r.message === 'string') {
+						file_url = r.message;
+					}
+				}
+				
+				if (file_url) {
 					// Add file to bulk upload item
 					frappe.call({
 						method: 'bank_payment_parser.api.bulk_upload.add_file_to_bulk_upload',
 						args: {
 							bulk_upload_name: bulk_upload_name,
-							file_url: r.message.file_url,
-							file_name: file.name
+							file_url: file_url,
+							file_name: file_name
 						},
 						callback: function(add_r) {
 							// Continue with next file
@@ -426,7 +449,7 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 						}
 					});
 				} else {
-					console.error('Upload response missing file_url:', r);
+					console.error('Upload response missing file_url. Response:', r);
 					upload_errors.push(file.name);
 					upload_next(index + 1);
 				}
