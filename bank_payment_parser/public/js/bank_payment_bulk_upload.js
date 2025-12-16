@@ -268,17 +268,18 @@ function update_file_list(files, file_list) {
 
 /**
  * Upload files and add to bulk upload record
+ * 
+ * Simplified: Just collect files and call ONE backend API.
+ * All file handling logic is in Python.
  */
 function upload_files(frm, dialog) {
 	// Get files from dialog - ensure it's an array
 	const files = dialog.selected_files || [];
 	
-	console.log('Upload button clicked. Files selected:', files.length);
-	
 	if (!files || files.length === 0) {
 		frappe.msgprint({
 			title: __('No Files Selected'),
-			message: __('Please select at least one PDF file. Click "Select Files" or drag and drop PDF files.'),
+			message: __('Please select at least one PDF or XML file. Click "Select Files" or drag and drop files.'),
 			indicator: 'orange'
 		});
 		return;
@@ -293,267 +294,117 @@ function upload_files(frm, dialog) {
 		return;
 	}
 	
-	// Disable the button to prevent double-click
-	dialog.get_primary_btn().prop('disabled', true);
-	dialog.get_primary_btn().text(__('Uploading...'));
-	
-	// Use existing record if saved, otherwise create new
-	const bulk_upload_name = frm.doc.name || null;
-	
-	if (bulk_upload_name) {
-		// Add files to existing record
-		upload_file_contents(frm, bulk_upload_name, files, dialog);
-	} else {
-		// Create new record first
-		frappe.call({
-			method: 'bank_payment_parser.api.bulk_upload.create_bulk_upload',
-			args: {
-				customer: frm.doc.customer,
-				files: files.map(f => ({
-					name: f.name,
-					size: f.size,
-					type: f.type
-				}))
-			},
-			freeze: true,
-			freeze_message: __('Creating bulk upload record...'),
-			callback: function(r) {
-				if (r.message && r.message.success) {
-					// Reload form with new record name, then upload files
-					frm.reload_doc().then(function() {
-						upload_file_contents(frm, frm.doc.name, files, dialog);
-					});
-				} else {
-					dialog.get_primary_btn().prop('disabled', false);
-					dialog.get_primary_btn().text(__('Upload & Process'));
-					frappe.msgprint({
-						title: __('Error'),
-						message: __('Error creating bulk upload record: {0}', [r.message?.error || 'Unknown error']),
-						indicator: 'red'
-					});
-				}
-			},
-			error: function(r) {
-				dialog.get_primary_btn().prop('disabled', false);
-				dialog.get_primary_btn().text(__('Upload & Process'));
-				frappe.msgprint({
-					title: __('Error'),
-					message: __('Error creating bulk upload record: {0}', [r.message || 'Unknown error']),
-					indicator: 'red'
-				});
-			}
+	// Ensure document is saved first
+	const bulk_upload_name = frm.doc.name;
+	if (!bulk_upload_name) {
+		// Save document first
+		frm.save().then(function() {
+			upload_files_to_backend(frm, dialog, frm.doc.name, files);
+		}).catch(function() {
+			frappe.msgprint(__('Please save the document first'));
 		});
+	} else {
+		upload_files_to_backend(frm, dialog, bulk_upload_name, files);
 	}
 }
 
 /**
- * Upload file contents
+ * Upload files to backend using single API call
+ * 
+ * Uses FormData to send files directly to our Python method.
+ * No direct calls to /api/method/upload_file.
  */
-function upload_file_contents(frm, bulk_upload_name, files, dialog) {
-	let uploaded = 0;
-	const total = files.length;
-	let upload_errors = [];
+function upload_files_to_backend(frm, dialog, bulk_upload_name, files) {
+	// Disable the button to prevent double-click
+	dialog.get_primary_btn().prop('disabled', true);
+	dialog.get_primary_btn().text(__('Uploading...'));
 	
-	// Upload files sequentially to avoid overwhelming the server
-	function upload_next(index) {
-		if (index >= total) {
-			// All files processed
+	// Create FormData with files
+	const form_data = new FormData();
+	form_data.append('bulk_upload_name', bulk_upload_name);
+	
+	// Add all files with key "files" (Python will use getlist("files"))
+	files.forEach(function(file) {
+		form_data.append('files', file);
+	});
+	
+	// Use jQuery AJAX to send FormData (frappe.call doesn't support file uploads directly)
+	$.ajax({
+		url: '/api/method/bank_payment_parser.api.bulk_upload.upload_bulk_files',
+		type: 'POST',
+		data: form_data,
+		processData: false,
+		contentType: false,
+		headers: {
+			'X-Frappe-CSRF-Token': frappe.csrf_token || frappe.boot.csrf_token
+		},
+		success: function(r) {
 			dialog.hide();
 			frm.reload_doc();
 			
-			if (upload_errors.length > 0) {
-				frappe.msgprint({
-					title: __('Upload Complete with Errors'),
-					message: __('{0} file(s) uploaded successfully. {1} file(s) failed.', [
-						total - upload_errors.length,
-						upload_errors.length
-					]),
-					indicator: 'orange'
-				});
-			} else {
-				frappe.show_alert({
-					message: __('{0} file(s) uploaded successfully', [total]),
-					indicator: 'green'
-				});
-			}
-			return;
-		}
-		
-		const file = files[index];
-		const form_data = new FormData();
-		form_data.append('file', file);
-		form_data.append('is_private', 1);
-		form_data.append('folder', 'Home');
-		
-		// Use custom upload method for XML files to bypass MIME type restrictions
-		const is_xml = file.name.toLowerCase().endsWith('.xml');
-		if (is_xml) {
-			// For XML files, use custom method and don't set doctype/docname initially
-			// This avoids permission checks on non-existent Bank Payment Bulk Upload Item
-			form_data.append('method', 'bank_payment_parser.api.bulk_upload.upload_file_for_bulk_upload');
-			// Pass bulk_upload_name as a custom parameter instead
-			form_data.append('bulk_upload_name', bulk_upload_name);
-		} else {
-			// For PDF files, use standard upload
-			form_data.append('doctype', 'Bank Payment Bulk Upload Item');
-			form_data.append('docname', bulk_upload_name);
-			form_data.append('fieldname', 'pdf_file');
-		}
-		
-		// Get CSRF token
-		const csrf_token = frappe.csrf_token || (frappe.boot && frappe.boot.csrf_token) || '';
-		if (!csrf_token) {
-			console.error('CSRF token not available');
-			upload_errors.push(file.name);
-			frappe.show_alert({
-				message: __('CSRF token missing. Please refresh the page and try again.'),
-				indicator: 'red'
-			}, 5);
-			upload_next(index + 1);
-			return;
-		}
-		
-		console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
-		
-		$.ajax({
-			url: '/api/method/upload_file',
-			type: 'POST',
-			data: form_data,
-			processData: false,
-			contentType: false,
-			timeout: 300000, // 5 minutes timeout for large files
-			headers: {
-				'X-Frappe-CSRF-Token': csrf_token
-			},
-			success: function(r) {
-				uploaded++;
-				
-				// Handle different response formats
-				// Standard upload_file returns: {message: {file_url: "...", file_name: "..."}}
-				// Custom method returns: {message: {file_url: "...", file_name: "...", name: "..."}}
-				let file_url = null;
-				let file_name = file.name;
-				
-				if (r && r.message) {
-					// Check if message is a dict with file_url
-					if (r.message.file_url) {
-						file_url = r.message.file_url;
-						file_name = r.message.file_name || file.name;
-					}
-					// Check if message is a File document (has name and file_url properties)
-					else if (r.message.name && r.message.file_url) {
-						file_url = r.message.file_url;
-						file_name = r.message.file_name || file.name;
-					}
-					// Check if message itself is the file_url string
-					else if (typeof r.message === 'string') {
-						file_url = r.message;
-					}
+			// Parse response
+			let response = r;
+			if (typeof r === 'string') {
+				try {
+					response = JSON.parse(r);
+				} catch (e) {
+					console.error('Error parsing response:', e);
 				}
+			}
+			
+			if (response && response.message) {
+				const uploaded = response.message.uploaded_count || 0;
+				const failed = response.message.failed_count || 0;
+				const errors = response.message.errors || [];
 				
-				if (file_url) {
-					// Add file to bulk upload item
-					frappe.call({
-						method: 'bank_payment_parser.api.bulk_upload.add_file_to_bulk_upload',
-						args: {
-							bulk_upload_name: bulk_upload_name,
-							file_url: file_url,
-							file_name: file_name
-						},
-						callback: function(add_r) {
-							// Continue with next file
-							upload_next(index + 1);
-						},
-						error: function(add_r) {
-							console.error('Error adding file to bulk upload:', add_r);
-							upload_errors.push(file.name);
-							upload_next(index + 1);
+				if (failed > 0) {
+					let error_msg = __('{0} file(s) uploaded successfully. {1} file(s) failed.', [uploaded, failed]);
+					if (errors.length > 0) {
+						error_msg += '\n\n' + errors.slice(0, 5).join('\n');
+						if (errors.length > 5) {
+							error_msg += '\n... and ' + (errors.length - 5) + ' more errors';
 						}
+					}
+					frappe.msgprint({
+						title: __('Upload Complete with Errors'),
+						message: error_msg,
+						indicator: 'orange'
 					});
 				} else {
-					console.error('Upload response missing file_url. Response:', r);
-					upload_errors.push(file.name);
-					upload_next(index + 1);
+					frappe.show_alert({
+						message: __('{0} file(s) uploaded successfully', [uploaded]),
+						indicator: 'green'
+					});
 				}
-			},
-			error: function(r, textStatus, errorThrown) {
-				uploaded++;
-				
-				// Handle different error scenarios
-				let error_msg = 'Unknown error';
-				
-				// readyState 0 means request was aborted or network error
-				if (r.readyState === 0) {
-					if (textStatus === 'abort') {
-						error_msg = 'Upload was aborted';
-					} else if (textStatus === 'timeout') {
-						error_msg = 'Upload timed out';
-					} else if (textStatus === 'error') {
-						error_msg = 'Network error - please check your connection';
-					} else {
-						error_msg = `Network error: ${textStatus || errorThrown || 'Connection failed'}`;
-					}
-				}
-				// Extract error message from various possible response formats
-				else if (r.responseJSON) {
-					if (r.responseJSON.message) {
-						if (typeof r.responseJSON.message === 'string') {
-							error_msg = r.responseJSON.message;
-						} else if (r.responseJSON.message.message) {
-							error_msg = r.responseJSON.message.message;
-						} else if (r.responseJSON.message.exc_type) {
-							error_msg = `${r.responseJSON.message.exc_type}: ${r.responseJSON.message.exc || r.responseJSON.message.message || 'Unknown error'}`;
-						} else if (r.responseJSON.message._error_message) {
-							error_msg = r.responseJSON.message._error_message;
-						}
-					} else if (r.responseJSON.exc) {
-						error_msg = r.responseJSON.exc;
-					} else if (r.responseJSON._error_message) {
-						error_msg = r.responseJSON._error_message;
-					}
-				} else if (r.responseText) {
-					try {
-						const parsed = JSON.parse(r.responseText);
-						error_msg = parsed.message?.message || parsed.message?._error_message || parsed.message || parsed.exc || parsed._error_message || error_msg;
-					} catch (e) {
-						error_msg = r.responseText.substring(0, 200); // Limit length
-					}
-				} else if (r.status) {
-					error_msg = `HTTP ${r.status}: ${r.statusText || 'Request failed'}`;
-				} else if (textStatus) {
-					error_msg = textStatus;
-				} else if (errorThrown) {
-					error_msg = errorThrown;
-				}
-				
-				console.error('Error uploading file:', file.name);
-				console.error('Error details:', {
-					readyState: r.readyState,
-					status: r.status,
-					statusText: r.statusText,
-					textStatus: textStatus,
-					errorThrown: errorThrown,
-					responseJSON: r.responseJSON,
-					responseText: r.responseText,
-					error_msg: error_msg
-				});
-				
-				upload_errors.push(file.name);
-				
-				// Show user-friendly error message
-				frappe.show_alert({
-					message: __('Failed to upload {0}: {1}', [file.name, error_msg]),
-					indicator: 'red'
-				}, 5);
-				
-				upload_next(index + 1);
 			}
-		});
-	}
-	
-	// Start uploading
-	upload_next(0);
+		},
+		error: function(r) {
+			dialog.get_primary_btn().prop('disabled', false);
+			dialog.get_primary_btn().text(__('Upload & Process'));
+			
+			let error_msg = __('Unknown error');
+			if (r.responseJSON) {
+				error_msg = r.responseJSON.message?.message || r.responseJSON.exc || r.responseJSON._error_message || error_msg;
+			} else if (r.responseText) {
+				try {
+					const parsed = JSON.parse(r.responseText);
+					error_msg = parsed.message?.message || parsed.exc || error_msg;
+				} catch (e) {
+					error_msg = r.responseText.substring(0, 200);
+				}
+			} else if (r.status) {
+				error_msg = `HTTP ${r.status}: ${r.statusText || 'Request failed'}`;
+			}
+			
+			frappe.msgprint({
+				title: __('Upload Failed'),
+				message: error_msg,
+				indicator: 'red'
+			});
+		}
+	});
 }
+
 
 /**
  * Reprocess failed files

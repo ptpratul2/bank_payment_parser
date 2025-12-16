@@ -6,90 +6,134 @@ import os
 
 import frappe
 from frappe import _
-from frappe.utils import now
+from frappe.utils import now, cint
 from bank_payment_parser.jobs.bulk_processor import enqueue_bulk_processing
 
 
 @frappe.whitelist()
-def upload_file_for_bulk_upload():
+def upload_bulk_files(bulk_upload_name: str):
 	"""
-	Custom file upload method that allows XML files (bypasses MIME type restrictions).
+	Upload multiple PDF/XML files for bulk processing.
 	
-	This method is called via the 'method' parameter in upload_file to bypass
-	the ALLOWED_MIMETYPES check for XML files.
+	This is the ONLY method JS should call for file uploads.
+	It handles:
+	- File validation (PDF/XML only)
+	- File document creation (bypasses MIME type restrictions)
+	- Bulk Upload Item creation
+	- Proper attachment linking
+	- Counter updates
 	
+	Files are sent via frappe.request.files with key "files" (multiple files).
+	
+	Args:
+		bulk_upload_name: Name of the Bank Payment Bulk Upload document
+		
 	Returns:
-		Dictionary with file_url and file_name (matching standard upload_file response format)
+		Dictionary with:
+		- success: bool
+		- uploaded_count: int
+		- failed_count: int
+		- errors: list of error messages
 	"""
-	from frappe.utils import cint
+	if not bulk_upload_name:
+		frappe.throw(_("Bulk upload name is required"))
 	
+	# Verify bulk upload exists
+	if not frappe.db.exists("Bank Payment Bulk Upload", bulk_upload_name):
+		frappe.throw(_("Bulk upload '{0}' not found").format(bulk_upload_name))
+	
+	bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
+	
+	# Get files from request - handle both single "file" and multiple "files"
+	files_list = []
+	if "files" in frappe.request.files:
+		# Multiple files (getlist returns list even for single file)
+		files_list = frappe.request.files.getlist("files")
+	elif "file" in frappe.request.files:
+		# Single file
+		files_list = [frappe.request.files["file"]]
+	
+	if not files_list:
+		frappe.throw(_("No files found in request"))
+	
+	uploaded_count = 0
+	failed_count = 0
+	errors = []
+	
+	for file_storage in files_list:
+		filename = None
+		try:
+			# Read file content
+			content = file_storage.stream.read()
+			filename = file_storage.filename
+			
+			if not filename:
+				errors.append(_("File with no name skipped"))
+				failed_count += 1
+				continue
+			
+			# Validate file extension
+			ext = os.path.splitext(filename)[1].lower()
+			if ext not in [".pdf", ".xml"]:
+				errors.append(_("File '{0}' skipped: Only PDF and XML files are allowed").format(filename))
+				failed_count += 1
+				continue
+			
+			# Determine file type
+			file_type = "PDF" if ext == ".pdf" else "XML"
+			
+			# Create File document (bypasses MIME type restrictions)
+			# We'll attach it to the bulk upload item after creating the item
+			file_doc = frappe.get_doc({
+				"doctype": "File",
+				"attached_to_doctype": "Bank Payment Bulk Upload Item",
+				"attached_to_name": "",  # Will be set after item creation
+				"attached_to_field": "pdf_file",
+				"folder": "Home",
+				"file_name": filename,
+				"is_private": 1,
+				"content": content,
+			})
+			file_doc.save(ignore_permissions=True)
+			
+			# Create Bulk Upload Item
+			bulk_upload.append("items", {
+				"pdf_file": file_doc.file_url,
+				"file_name": filename,
+				"file_type": file_type,
+				"parse_status": "Pending"
+			})
+			
+			uploaded_count += 1
+			
+		except Exception as e:
+			failed_count += 1
+			error_msg = _("Error uploading '{0}': {1}").format(filename or "unknown file", str(e))
+			errors.append(error_msg)
+			frappe.log_error(
+				title="Error uploading file in bulk",
+				message=f"File: {filename or 'unknown'}\nError: {str(e)}\n\n{frappe.get_traceback()}"
+			)
+	
+	# Update bulk upload document
 	try:
-		files = frappe.request.files
-		is_private = frappe.form_dict.is_private
-		# For XML files, we get bulk_upload_name as a custom parameter
-		# For standard uploads, we get doctype/docname
-		bulk_upload_name = frappe.form_dict.get("bulk_upload_name")
-		doctype = frappe.form_dict.doctype
-		docname = frappe.form_dict.docname
-		fieldname = frappe.form_dict.fieldname
-		folder = frappe.form_dict.folder or "Home"
-		filename = frappe.form_dict.file_name
-		content = None
-		
-		if "file" not in files:
-			frappe.throw(_("No file found in request"))
-		
-		file = files["file"]
-		content = file.stream.read()
-		filename = filename or file.filename
-		
-		if not filename:
-			frappe.throw(_("Filename is required"))
-		
-		if not content:
-			frappe.throw(_("File content is required"))
-		
-		# For XML files uploaded via custom method, we don't attach to a doctype initially
-		# The file will be linked later when added to bulk upload items
-		if bulk_upload_name:
-			# XML file - don't attach to doctype yet (avoids permission check)
-			attached_to_doctype = None
-			attached_to_name = None
-			attached_to_field = None
-		else:
-			# Standard upload - use provided doctype/docname
-			attached_to_doctype = doctype if docname else None
-			attached_to_name = docname if docname else None
-			attached_to_field = fieldname if docname else None
-		
-		# Create File document directly (bypasses MIME type check)
-		file_doc = frappe.get_doc({
-			"doctype": "File",
-			"attached_to_doctype": attached_to_doctype,
-			"attached_to_name": attached_to_name,
-			"attached_to_field": attached_to_field,
-			"folder": folder,
-			"file_name": filename,
-			"is_private": cint(is_private),
-			"content": content,
-		})
-		
-		file_doc.save(ignore_permissions=True)
+		bulk_upload.total_files = len(bulk_upload.items)
+		bulk_upload.save(ignore_permissions=True)
 		frappe.db.commit()
-		
-		# Return in the same format as standard upload_file endpoint
-		return {
-			"file_url": file_doc.file_url,
-			"file_name": file_doc.file_name,
-			"name": file_doc.name
-		}
 	except Exception as e:
-		frappe.log_error(
-			title="Error in upload_file_for_bulk_upload",
-			message=f"Error uploading file {filename or 'unknown'}: {str(e)}\n\n{frappe.get_traceback()}"
-		)
 		frappe.db.rollback()
+		frappe.log_error(
+			title="Error saving bulk upload",
+			message=f"Bulk upload: {bulk_upload_name}\nError: {str(e)}\n\n{frappe.get_traceback()}"
+		)
 		raise
+	
+	return {
+		"success": True,
+		"uploaded_count": uploaded_count,
+		"failed_count": failed_count,
+		"errors": errors
+	}
 
 
 @frappe.whitelist()
