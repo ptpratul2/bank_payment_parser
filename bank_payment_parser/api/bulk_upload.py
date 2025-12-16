@@ -26,6 +26,9 @@ def upload_file_for_bulk_upload():
 	try:
 		files = frappe.request.files
 		is_private = frappe.form_dict.is_private
+		# For XML files, we get bulk_upload_name as a custom parameter
+		# For standard uploads, we get doctype/docname
+		bulk_upload_name = frappe.form_dict.get("bulk_upload_name")
 		doctype = frappe.form_dict.doctype
 		docname = frappe.form_dict.docname
 		fieldname = frappe.form_dict.fieldname
@@ -46,13 +49,25 @@ def upload_file_for_bulk_upload():
 		if not content:
 			frappe.throw(_("File content is required"))
 		
+		# For XML files uploaded via custom method, we don't attach to a doctype initially
+		# The file will be linked later when added to bulk upload items
+		if bulk_upload_name:
+			# XML file - don't attach to doctype yet (avoids permission check)
+			attached_to_doctype = None
+			attached_to_name = None
+			attached_to_field = None
+		else:
+			# Standard upload - use provided doctype/docname
+			attached_to_doctype = doctype if docname else None
+			attached_to_name = docname if docname else None
+			attached_to_field = fieldname if docname else None
+		
 		# Create File document directly (bypasses MIME type check)
-		# Note: docname might not exist yet (for bulk upload items), so we allow None
 		file_doc = frappe.get_doc({
 			"doctype": "File",
-			"attached_to_doctype": doctype if docname else None,
-			"attached_to_name": docname if docname else None,
-			"attached_to_field": fieldname if docname else None,
+			"attached_to_doctype": attached_to_doctype,
+			"attached_to_name": attached_to_name,
+			"attached_to_field": attached_to_field,
 			"folder": folder,
 			"file_name": filename,
 			"is_private": cint(is_private),

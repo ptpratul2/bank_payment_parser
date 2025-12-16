@@ -384,14 +384,20 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 		form_data.append('file', file);
 		form_data.append('is_private', 1);
 		form_data.append('folder', 'Home');
-		form_data.append('doctype', 'Bank Payment Bulk Upload Item');
-		form_data.append('docname', bulk_upload_name);
-		form_data.append('fieldname', 'pdf_file');
 		
 		// Use custom upload method for XML files to bypass MIME type restrictions
 		const is_xml = file.name.toLowerCase().endsWith('.xml');
 		if (is_xml) {
+			// For XML files, use custom method and don't set doctype/docname initially
+			// This avoids permission checks on non-existent Bank Payment Bulk Upload Item
 			form_data.append('method', 'bank_payment_parser.api.bulk_upload.upload_file_for_bulk_upload');
+			// Pass bulk_upload_name as a custom parameter instead
+			form_data.append('bulk_upload_name', bulk_upload_name);
+		} else {
+			// For PDF files, use standard upload
+			form_data.append('doctype', 'Bank Payment Bulk Upload Item');
+			form_data.append('docname', bulk_upload_name);
+			form_data.append('fieldname', 'pdf_file');
 		}
 		
 		$.ajax({
