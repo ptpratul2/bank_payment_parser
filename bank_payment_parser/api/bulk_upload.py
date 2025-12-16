@@ -23,47 +23,58 @@ def upload_file_for_bulk_upload():
 	"""
 	from frappe.utils import cint
 	
-	files = frappe.request.files
-	is_private = frappe.form_dict.is_private
-	doctype = frappe.form_dict.doctype
-	docname = frappe.form_dict.docname
-	fieldname = frappe.form_dict.fieldname
-	folder = frappe.form_dict.folder or "Home"
-	filename = frappe.form_dict.file_name
-	content = None
-	
-	if "file" in files:
+	try:
+		files = frappe.request.files
+		is_private = frappe.form_dict.is_private
+		doctype = frappe.form_dict.doctype
+		docname = frappe.form_dict.docname
+		fieldname = frappe.form_dict.fieldname
+		folder = frappe.form_dict.folder or "Home"
+		filename = frappe.form_dict.file_name
+		content = None
+		
+		if "file" not in files:
+			frappe.throw(_("No file found in request"))
+		
 		file = files["file"]
 		content = file.stream.read()
 		filename = filename or file.filename
-	
-	if not filename:
-		frappe.throw(_("Filename is required"))
-	
-	if not content:
-		frappe.throw(_("File content is required"))
-	
-	# Create File document directly (bypasses MIME type check)
-	file_doc = frappe.get_doc({
-		"doctype": "File",
-		"attached_to_doctype": doctype,
-		"attached_to_name": docname,
-		"attached_to_field": fieldname,
-		"folder": folder,
-		"file_name": filename,
-		"is_private": cint(is_private),
-		"content": content,
-	})
-	
-	file_doc.save(ignore_permissions=True)
-	frappe.db.commit()
-	
-	# Return in the same format as standard upload_file endpoint
-	return {
-		"file_url": file_doc.file_url,
-		"file_name": file_doc.file_name,
-		"name": file_doc.name
-	}
+		
+		if not filename:
+			frappe.throw(_("Filename is required"))
+		
+		if not content:
+			frappe.throw(_("File content is required"))
+		
+		# Create File document directly (bypasses MIME type check)
+		# Note: docname might not exist yet (for bulk upload items), so we allow None
+		file_doc = frappe.get_doc({
+			"doctype": "File",
+			"attached_to_doctype": doctype if docname else None,
+			"attached_to_name": docname if docname else None,
+			"attached_to_field": fieldname if docname else None,
+			"folder": folder,
+			"file_name": filename,
+			"is_private": cint(is_private),
+			"content": content,
+		})
+		
+		file_doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		
+		# Return in the same format as standard upload_file endpoint
+		return {
+			"file_url": file_doc.file_url,
+			"file_name": file_doc.file_name,
+			"name": file_doc.name
+		}
+	except Exception as e:
+		frappe.log_error(
+			title="Error in upload_file_for_bulk_upload",
+			message=f"Error uploading file {filename or 'unknown'}: {str(e)}\n\n{frappe.get_traceback()}"
+		)
+		frappe.db.rollback()
+		raise
 
 
 @frappe.whitelist()
