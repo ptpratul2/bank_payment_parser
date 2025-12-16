@@ -466,14 +466,18 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 							error_msg = r.responseJSON.message.message;
 						} else if (r.responseJSON.message.exc_type) {
 							error_msg = `${r.responseJSON.message.exc_type}: ${r.responseJSON.message.exc || r.responseJSON.message.message || 'Unknown error'}`;
+						} else if (r.responseJSON.message._error_message) {
+							error_msg = r.responseJSON.message._error_message;
 						}
 					} else if (r.responseJSON.exc) {
 						error_msg = r.responseJSON.exc;
+					} else if (r.responseJSON._error_message) {
+						error_msg = r.responseJSON._error_message;
 					}
 				} else if (r.responseText) {
 					try {
 						const parsed = JSON.parse(r.responseText);
-						error_msg = parsed.message?.message || parsed.message || parsed.exc || error_msg;
+						error_msg = parsed.message?.message || parsed.message?._error_message || parsed.message || parsed.exc || parsed._error_message || error_msg;
 					} catch (e) {
 						error_msg = r.responseText.substring(0, 200); // Limit length
 					}
@@ -482,9 +486,15 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 				}
 				
 				console.error('Error uploading file:', file.name, error_msg);
+				console.error('Full error response:', r);
 				upload_errors.push(file.name);
-				// Note: Server-side error logging happens in the API endpoint
-				// Client-side errors are logged to console for debugging
+				
+				// Show user-friendly error message
+				frappe.show_alert({
+					message: __('Failed to upload {0}: {1}', [file.name, error_msg]),
+					indicator: 'red'
+				}, 5);
+				
 				upload_next(index + 1);
 			}
 		});
