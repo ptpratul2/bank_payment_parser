@@ -1,0 +1,11 @@
+{
+	"js/bank_payment_parser.min.js": [
+		"public/js/bank_payment_parser.js"
+	],
+	"js/bank_payment_advice.min.js": [
+		"public/js/bank_payment_advice.js"
+	],
+	"js/bank_payment_bulk_upload.min.js": [
+		"public/js/bank_payment_bulk_upload.js"
+	]
+}
