@@ -82,20 +82,13 @@ def upload_bulk_files(bulk_upload_name: str):
 			# Determine file type
 			file_type = "PDF" if ext == ".pdf" else "XML"
 			
-			# Create Bulk Upload Item first (to get the item name)
-			item_row = bulk_upload.append("items", {
-				"file_name": filename,
-				"file_type": file_type,
-				"parse_status": "Pending"
-			})
-			
-			# Save to get the item name (if autoname is set)
-			# For now, we'll create the file without attachment and link it later
 			# Create File document (bypasses MIME type restrictions)
+			# Note: We create the file first, then link it to the item
+			# The item doesn't exist yet, so we'll attach it later via file_url
 			file_doc = frappe.get_doc({
 				"doctype": "File",
 				"attached_to_doctype": "Bank Payment Bulk Upload Item",
-				"attached_to_name": "",  # Will be updated after item is saved
+				"attached_to_name": "",  # Item doesn't exist yet, will be linked via file_url
 				"attached_to_field": "pdf_file",
 				"folder": "Home",
 				"file_name": filename,
@@ -104,8 +97,13 @@ def upload_bulk_files(bulk_upload_name: str):
 			})
 			file_doc.save(ignore_permissions=True)
 			
-			# Update item with file URL
-			item_row.pdf_file = file_doc.file_url
+			# Create Bulk Upload Item with file URL
+			bulk_upload.append("items", {
+				"pdf_file": file_doc.file_url,
+				"file_name": filename,
+				"file_type": file_type,
+				"parse_status": "Pending"
+			})
 			
 			uploaded_count += 1
 			
