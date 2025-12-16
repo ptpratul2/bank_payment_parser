@@ -388,6 +388,12 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 		form_data.append('docname', bulk_upload_name);
 		form_data.append('fieldname', 'pdf_file');
 		
+		// Use custom upload method for XML files to bypass MIME type restrictions
+		const is_xml = file.name.toLowerCase().endsWith('.xml');
+		if (is_xml) {
+			form_data.append('method', 'bank_payment_parser.api.bulk_upload.upload_file_for_bulk_upload');
+		}
+		
 		$.ajax({
 			url: '/api/method/upload_file',
 			type: 'POST',
@@ -427,7 +433,31 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 			},
 			error: function(r) {
 				uploaded++;
-				const error_msg = r.responseJSON?.message?.message || r.responseJSON?.message || r.responseText || 'Unknown error';
+				// Extract error message from various possible response formats
+				let error_msg = 'Unknown error';
+				if (r.responseJSON) {
+					if (r.responseJSON.message) {
+						if (typeof r.responseJSON.message === 'string') {
+							error_msg = r.responseJSON.message;
+						} else if (r.responseJSON.message.message) {
+							error_msg = r.responseJSON.message.message;
+						} else if (r.responseJSON.message.exc_type) {
+							error_msg = `${r.responseJSON.message.exc_type}: ${r.responseJSON.message.exc || r.responseJSON.message.message || 'Unknown error'}`;
+						}
+					} else if (r.responseJSON.exc) {
+						error_msg = r.responseJSON.exc;
+					}
+				} else if (r.responseText) {
+					try {
+						const parsed = JSON.parse(r.responseText);
+						error_msg = parsed.message?.message || parsed.message || parsed.exc || error_msg;
+					} catch (e) {
+						error_msg = r.responseText.substring(0, 200); // Limit length
+					}
+				} else if (r.status) {
+					error_msg = `HTTP ${r.status}: ${r.statusText || 'Request failed'}`;
+				}
+				
 				console.error('Error uploading file:', file.name, error_msg);
 				upload_errors.push(file.name);
 				// Note: Server-side error logging happens in the API endpoint

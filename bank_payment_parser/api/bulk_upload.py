@@ -11,6 +11,51 @@ from bank_payment_parser.jobs.bulk_processor import enqueue_bulk_processing
 
 
 @frappe.whitelist()
+def upload_file_for_bulk_upload():
+	"""
+	Custom file upload method that allows XML files (bypasses MIME type restrictions).
+	
+	This method is called via the 'method' parameter in upload_file to bypass
+	the ALLOWED_MIMETYPES check for XML files.
+	
+	Returns:
+		File document with file_url
+	"""
+	from frappe.utils import cint
+	
+	files = frappe.request.files
+	is_private = frappe.form_dict.is_private
+	doctype = frappe.form_dict.doctype
+	docname = frappe.form_dict.docname
+	fieldname = frappe.form_dict.fieldname
+	folder = frappe.form_dict.folder or "Home"
+	filename = frappe.form_dict.file_name
+	content = None
+	
+	if "file" in files:
+		file = files["file"]
+		content = file.stream.read()
+		filename = filename or file.filename
+	
+	# Create File document directly (bypasses MIME type check)
+	file_doc = frappe.get_doc({
+		"doctype": "File",
+		"attached_to_doctype": doctype,
+		"attached_to_name": docname,
+		"attached_to_field": fieldname,
+		"folder": folder,
+		"file_name": filename,
+		"is_private": cint(is_private),
+		"content": content,
+	})
+	
+	file_doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	
+	return file_doc
+
+
+@frappe.whitelist()
 def create_bulk_upload(customer: str, files: list):
 	"""
 	Create a new bulk upload record.
