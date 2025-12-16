@@ -32,11 +32,18 @@ A scalable, production-ready Frappe app for parsing customer-specific bank payme
 ```bash
 # Get the app
 cd /path/to/frappe-bench
-bench get-app bank_payment_parser
+bench get-app bank_payment_parser https://github.com/ptpratul2/bank_payment_parser.git
 
-# Install on site
+# Install on site (this adds app to apps.txt and runs migrations)
 bench --site your-site.local install-app bank_payment_parser
+
+# Build assets (run after installation)
+bench build --app bank_payment_parser
 ```
+
+**Note:** If you encounter an esbuild error during installation, ensure the app is properly installed first:
+1. Run `bench --site your-site.local install-app bank_payment_parser` 
+2. Then run `bench build --app bank_payment_parser` separately
 
 ### Install OCR Dependencies (Optional)
 
