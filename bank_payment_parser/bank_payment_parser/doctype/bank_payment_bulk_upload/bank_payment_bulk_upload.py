@@ -125,42 +125,61 @@ class BankPaymentBulkUpload(frappe.model.document.Document):
 		
 		When a bulk upload is cancelled, all advice records created from it
 		must be cleaned up to prevent orphan records.
+		
+		This method is called automatically when the document is cancelled.
+		It handles cleanup of all related records including Payment Entries.
 		"""
-		self._cleanup_related_advice_records()
+		try:
+			self._cleanup_related_advice_records()
+		except Exception as e:
+			# Log error but don't prevent cancellation
+			frappe.log_error(
+				title=f"Error during bulk upload cancellation cleanup for {self.name}",
+				message=f"Failed to cleanup related records: {str(e)}\n\n{frappe.get_traceback()}"
+			)
+			# Show warning but allow cancellation to proceed
+			frappe.msgprint(
+				_("Warning: Some related records may not have been cleaned up. Please check Error Log."),
+				indicator="orange",
+				alert=True
+			)
 	
 	def _cleanup_related_advice_records(self):
 		"""Cancel and delete all Bank Payment Advice records linked to this bulk upload.
 		
 		This method:
 		- Fetches all advice records via bulk_upload_reference
-		- Cancels each if submitted
+		- Handles linked Payment Entries (cancels them first if needed)
+		- Cancels each advice if submitted
 		- Force deletes each record (with child invoice rows)
 		- Logs failures but continues execution
 		- Commits safely
 		"""
-		# Fetch all related advice records
-		advice_names = frappe.get_all(
+		# Fetch all related advice records with payment_entry info
+		advice_records = frappe.get_all(
 			"Bank Payment Advice",
 			filters={"bulk_upload_reference": self.name},
-			fields=["name", "docstatus"],
-			pluck="name",
+			fields=["name", "docstatus", "payment_entry"],
 		)
 		
-		if not advice_names:
+		if not advice_records:
 			frappe.logger().info(
 				f"No Bank Payment Advice records found for bulk upload {self.name}"
 			)
 			return
 		
 		frappe.logger().info(
-			f"Cleaning up {len(advice_names)} Bank Payment Advice record(s) for bulk upload {self.name}"
+			f"Cleaning up {len(advice_records)} Bank Payment Advice record(s) for bulk upload {self.name}"
 		)
 		
 		success_count = 0
 		failed_count = 0
 		failed_records = []
 		
-		for advice_name in advice_names:
+		for advice_record in advice_records:
+			advice_name = advice_record.name
+			payment_entry = advice_record.payment_entry
+			
 			try:
 				# Check if document still exists (idempotency)
 				if not frappe.db.exists("Bank Payment Advice", advice_name):
@@ -173,9 +192,48 @@ class BankPaymentBulkUpload(frappe.model.document.Document):
 				# Get the advice document
 				advice_doc = frappe.get_doc("Bank Payment Advice", advice_name)
 				
+				# Handle linked Payment Entry first (if exists)
+				if payment_entry and frappe.db.exists("Payment Entry", payment_entry):
+					try:
+						pe_doc = frappe.get_doc("Payment Entry", payment_entry)
+						# Cancel Payment Entry if submitted
+						if pe_doc.docstatus == 1:
+							pe_doc.flags.ignore_permissions = True
+							pe_doc.cancel()
+							frappe.db.commit()
+							frappe.logger().info(
+								f"Cancelled linked Payment Entry {payment_entry} for advice {advice_name}"
+							)
+						# Delete Payment Entry
+						frappe.delete_doc(
+							doctype="Payment Entry",
+							name=payment_entry,
+							force=True,
+							ignore_permissions=True,
+						)
+						frappe.db.commit()
+						frappe.logger().info(
+							f"Deleted linked Payment Entry {payment_entry} for advice {advice_name}"
+						)
+						# Clear the link in advice record
+						frappe.db.set_value(
+							"Bank Payment Advice",
+							advice_name,
+							"payment_entry",
+							None,
+							update_modified=False,
+						)
+					except Exception as pe_error:
+						# Log but continue - we'll try to delete advice anyway
+						frappe.log_error(
+							title=f"Error handling Payment Entry {payment_entry} for advice {advice_name}",
+							message=f"Failed to handle Payment Entry: {str(pe_error)}\n\n{frappe.get_traceback()}"
+						)
+				
 				# Cancel if submitted (docstatus = 1)
 				if advice_doc.docstatus == 1:
 					try:
+						advice_doc.flags.ignore_permissions = True
 						advice_doc.cancel()
 						frappe.db.commit()
 						frappe.logger().info(
@@ -199,6 +257,7 @@ class BankPaymentBulkUpload(frappe.model.document.Document):
 						force=True,  # Bypass link checks
 						ignore_permissions=True,  # Bypass permission checks
 					)
+					frappe.db.commit()
 				finally:
 					# Clear flag after deletion attempt
 					frappe.flags.bulk_cleanup = False
