@@ -82,12 +82,20 @@ def upload_bulk_files(bulk_upload_name: str):
 			# Determine file type
 			file_type = "PDF" if ext == ".pdf" else "XML"
 			
+			# Create Bulk Upload Item first (to get the item name)
+			item_row = bulk_upload.append("items", {
+				"file_name": filename,
+				"file_type": file_type,
+				"parse_status": "Pending"
+			})
+			
+			# Save to get the item name (if autoname is set)
+			# For now, we'll create the file without attachment and link it later
 			# Create File document (bypasses MIME type restrictions)
-			# We'll attach it to the bulk upload item after creating the item
 			file_doc = frappe.get_doc({
 				"doctype": "File",
 				"attached_to_doctype": "Bank Payment Bulk Upload Item",
-				"attached_to_name": "",  # Will be set after item creation
+				"attached_to_name": "",  # Will be updated after item is saved
 				"attached_to_field": "pdf_file",
 				"folder": "Home",
 				"file_name": filename,
@@ -96,13 +104,8 @@ def upload_bulk_files(bulk_upload_name: str):
 			})
 			file_doc.save(ignore_permissions=True)
 			
-			# Create Bulk Upload Item
-			bulk_upload.append("items", {
-				"pdf_file": file_doc.file_url,
-				"file_name": filename,
-				"file_type": file_type,
-				"parse_status": "Pending"
-			})
+			# Update item with file URL
+			item_row.pdf_file = file_doc.file_url
 			
 			uploaded_count += 1
 			
@@ -177,43 +180,6 @@ def create_bulk_upload(customer: str, files: list):
 	}
 
 
-@frappe.whitelist()
-def add_file_to_bulk_upload(bulk_upload_name: str, file_url: str, file_name: str):
-	"""
-	Add a file to bulk upload items.
-	
-	Args:
-		bulk_upload_name: Name of the bulk upload document
-		file_url: URL of the uploaded file
-		file_name: Name of the file
-	
-	Returns:
-		Dictionary with success status
-	"""
-	bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
-	
-	# Derive file type from extension
-	ext = os.path.splitext(file_name or "")[1].lower()
-	if ext == ".pdf":
-		file_type = "PDF"
-	elif ext == ".xml":
-		file_type = "XML"
-	else:
-		file_type = "Unknown"
-	
-	bulk_upload.append("items", {
-		"pdf_file": file_url,
-		"file_name": file_name,
-		"file_type": file_type,
-		"parse_status": "Pending"
-	})
-	
-	bulk_upload.save(ignore_permissions=True)
-	frappe.db.commit()
-	
-	return {
-		"success": True
-	}
 
 
 @frappe.whitelist()
