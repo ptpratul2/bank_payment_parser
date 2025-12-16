@@ -430,7 +430,8 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 				const error_msg = r.responseJSON?.message?.message || r.responseJSON?.message || r.responseText || 'Unknown error';
 				console.error('Error uploading file:', file.name, error_msg);
 				upload_errors.push(file.name);
-				frappe.log_error(__('Error uploading {0}: {1}', [file.name, error_msg]));
+				// Note: Server-side error logging happens in the API endpoint
+				// Client-side errors are logged to console for debugging
 				upload_next(index + 1);
 			}
 		});
