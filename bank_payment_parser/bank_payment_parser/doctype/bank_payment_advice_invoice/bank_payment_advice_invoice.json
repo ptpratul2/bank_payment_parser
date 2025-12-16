@@ -10,6 +10,10 @@
  "field_order": [
   "invoice_number_pf",
   "invoice_date_advanced_adjusted",
+  "invoice_gross_amount",
+  "invoice_net_amount",
+  "invoice_tds_amount",
+  "invoice_adjustment_amount",
   "tds_wct",
   "other_deductions_security_retention",
   "amount"
@@ -27,6 +31,29 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Invoice Date / Advanced Adjusted"
+  },
+  {
+   "fieldname": "invoice_gross_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Invoice Gross Amount"
+  },
+  {
+   "fieldname": "invoice_net_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Invoice Net Amount"
+  },
+  {
+   "fieldname": "invoice_tds_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Invoice TDS Amount"
+  },
+  {
+   "fieldname": "invoice_adjustment_amount",
+   "fieldtype": "Currency",
+   "label": "Invoice Adjustment Amount"
   },
   {
    "fieldname": "tds_wct",

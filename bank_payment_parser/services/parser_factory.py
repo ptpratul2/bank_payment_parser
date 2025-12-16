@@ -1,18 +1,27 @@
 """
 Parser Factory
 
-Detects customer from PDF and returns the appropriate parser instance.
+Detects customer from content and returns the appropriate parser instance.
+
+This module now supports both:
+- PDF parsers (customer-wise)
+- XML (cXML PaymentRemittanceRequest) parsers
 """
 
+import os
+from typing import Optional, Type, List
+
 import frappe
-from typing import Optional, Type
+
 from bank_payment_parser.services.base_parser import BaseParser
 from bank_payment_parser.services.hindustan_zinc import HindustanZincParser
 from bank_payment_parser.services.generic_parser import GenericParser
+from bank_payment_parser.services.pdf.hindustan_zinc_pdf import HindustanZincPDFParser
+from bank_payment_parser.services.pdf.generic_pdf import GenericPDFParser
+from bank_payment_parser.services.xml.cxml_payment_remittance import CXMLPaymentRemittanceParser
 
 
-# Registry of customer parsers
-# Format: "customer_name": ParserClass
+# Legacy registry of customer parsers (PDF only, kept for backward compatibility)
 PARSER_REGISTRY = {
 	"Hindustan Zinc India Ltd": HindustanZincParser,
 	"Hindustan Zinc India Limited": HindustanZincParser,
@@ -140,7 +149,7 @@ def register_parser(customer_name: str, parser_class: Type[BaseParser]):
 	frappe.log_error(f"Registered parser for customer: {customer_name}", "Parser Registration")
 
 
-def get_supported_customers() -> list:
+def get_supported_customers() -> List[str]:
 	"""
 	Get list of supported customer names.
 	
@@ -148,3 +157,60 @@ def get_supported_customers() -> list:
 		List of customer names that have registered parsers
 	"""
 	return list(PARSER_REGISTRY.keys())
+
+
+# ---------------------------------------------------------------------------
+# Unified factory for file-type aware parsing (PDF + XML)
+# ---------------------------------------------------------------------------
+
+PDF_REGISTRY: dict[str, Type[BaseParser]] = {
+	"Hindustan Zinc India Ltd": HindustanZincPDFParser,
+	"Hindustan Zinc India Limited": HindustanZincPDFParser,
+	"Hindustan Zinc": HindustanZincPDFParser,
+	"HZL": HindustanZincPDFParser,
+}
+
+
+def _get_file_extension(file_url: str) -> str:
+	"""Return lower-case file extension including dot (e.g. '.pdf')."""
+	return os.path.splitext(file_url or "")[1].lower()
+
+
+def get_pdf_parser_class(customer: Optional[str]) -> Type[BaseParser]:
+	"""Return PDF parser class for given customer, or generic as fallback."""
+	if customer and customer in PDF_REGISTRY:
+		return PDF_REGISTRY[customer]
+	return GenericPDFParser
+
+
+def get_xml_parser_class(customer: Optional[str]) -> Type[BaseParser]:
+	"""Return XML parser class. Currently customer-agnostic."""
+	# In future, you can switch on customer here
+	return CXMLPaymentRemittanceParser
+
+
+def get_parser_for_file(
+	file_url: str,
+	raw_payload: str,
+	user_selected_customer: Optional[str] = None,
+) -> BaseParser:
+	"""
+	Unified entry: choose parser based on file extension.
+
+	- PDF -> customer-wise PDF parser (Hindustan Zinc or generic)
+	- XML -> cXML PaymentRemittanceRequest parser
+	"""
+	ext = _get_file_extension(file_url)
+	customer = user_selected_customer
+
+	if ext == ".pdf":
+		ParserCls = get_pdf_parser_class(customer)
+		# For compatibility with existing BaseParser signature
+		return ParserCls(file_url, raw_payload, customer or "Unknown")
+
+	if ext == ".xml":
+		ParserCls = get_xml_parser_class(customer)
+		return ParserCls(xml_text=raw_payload, customer_name=customer)
+
+	# Unsupported type
+	raise frappe.ValidationError(f"Unsupported file type for parsing: {ext or 'unknown'}")

@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import now
 from bank_payment_parser.services.parser_factory import get_parser
 from bank_payment_parser.services.ocr_utils import extract_text_from_pdf, get_pdf_file_path
+from bank_payment_parser.services.payment_advice_creator import create_payment_advice_from_parsed_data
 
 
 @frappe.whitelist()
@@ -84,77 +85,14 @@ def create_payment_advice(file_url: str, customer: str = None, use_ocr: bool = F
 	parse_result = upload_and_parse(file_url, customer, use_ocr)
 	parsed_data = parse_result["parsed_data"]
 	
-	# Create Bank Payment Advice document
-	doc = frappe.get_doc({
-		"doctype": "Bank Payment Advice",
-		"customer": customer or parsed_data.get("customer_name"),
-		"payment_document_no": parsed_data.get("payment_document_no"),
-		"payment_date": parsed_data.get("payment_date"),
-		"bank_reference_no": parsed_data.get("bank_reference_no"),
-		"utr_rrn_no": parsed_data.get("utr_rrn_no"),
-		"payment_amount": parsed_data.get("payment_amount", 0),
-		"beneficiary_name": parsed_data.get("beneficiary_name"),
-		"beneficiary_account_no": parsed_data.get("beneficiary_account_no"),
-		"bank_name": parsed_data.get("bank_name"),
-		"currency": parsed_data.get("currency", "INR"),
-		"remarks": parsed_data.get("remarks"),
-		"pdf_file": file_url,
-		"raw_text": parsed_data.get("raw_text"),
-		"parser_used": parsed_data.get("parser_used"),
-		"parse_version": parsed_data.get("parse_version"),
-		"parse_status": "Parsed"
-	})
-	
-	# Add invoice details if available
-	# First try to use structured invoice table data (with amounts)
-	invoice_table_data = parsed_data.get("invoice_table_data", [])
-	total_amount = parsed_data.get("payment_amount", 0)
-	
-	if invoice_table_data:
-		# Use structured data from parser (includes 4 combined columns)
-		# Calculate amount per invoice: Total Payment Amount / Number of Invoices
-		# This matches the PDF format where amount is the payment amount divided equally
-		amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
-		
-		for invoice_row in invoice_table_data:
-			if invoice_row.get("invoice_number_pf"):
-				doc.append("invoices", {
-					"invoice_number_pf": invoice_row.get("invoice_number_pf", ""),
-					"invoice_date_advanced_adjusted": invoice_row.get("invoice_date_advanced_adjusted", ""),
-					"tds_wct": invoice_row.get("tds_wct", 0.0),
-					"other_deductions_security_retention": invoice_row.get("other_deductions_security_retention", 0.0),
-					"amount": amount_per_invoice  # Total payment amount divided equally
-				})
-	else:
-		# Fallback to simple list extraction
-		invoice_nos = parsed_data.get("invoice_no", [])
-		invoice_dates = parsed_data.get("invoice_date", [])
-		
-		# Normalize invoice_nos to list
-		if invoice_nos:
-			if isinstance(invoice_nos, str):
-				invoice_nos = [invoice_nos]
-			elif not isinstance(invoice_nos, list):
-				invoice_nos = []
-		
-		# Normalize invoice_dates to list
-		if invoice_dates:
-			if isinstance(invoice_dates, str):
-				invoice_dates = [invoice_dates]
-			elif not isinstance(invoice_dates, list):
-				invoice_dates = []
-		
-		if invoice_nos:
-			total_amount = parsed_data.get("payment_amount", 0)
-			amount_per_invoice = total_amount / len(invoice_nos) if len(invoice_nos) > 0 else 0
-			
-			for idx, invoice_no in enumerate(invoice_nos):
-				if invoice_no:  # Skip empty invoice numbers
-					doc.append("invoices", {
-						"invoice_number": invoice_no,
-						"invoice_date": invoice_dates[idx] if idx < len(invoice_dates) and invoice_dates[idx] else None,
-						"amount": amount_per_invoice
-					})
+	# Create Bank Payment Advice using centralized service
+	doc = create_payment_advice_from_parsed_data(
+		parsed_data=parsed_data,
+		file_url=file_url,
+		file_type="PDF",
+		customer=customer,
+		bulk_upload_reference=None,
+	)
 	
 	# Save document
 	try:

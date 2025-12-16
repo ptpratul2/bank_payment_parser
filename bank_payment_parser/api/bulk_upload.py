@@ -1,10 +1,12 @@
 """
-API endpoints for bulk PDF upload and processing
+API endpoints for bulk file upload and processing (PDF + XML).
 """
+
+import os
 
 import frappe
 from frappe import _
-from frappe.utils import now, get_datetime
+from frappe.utils import now
 from bank_payment_parser.jobs.bulk_processor import enqueue_bulk_processing
 
 
@@ -64,9 +66,19 @@ def add_file_to_bulk_upload(bulk_upload_name: str, file_url: str, file_name: str
 	"""
 	bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
 	
+	# Derive file type from extension
+	ext = os.path.splitext(file_name or "")[1].lower()
+	if ext == ".pdf":
+		file_type = "PDF"
+	elif ext == ".xml":
+		file_type = "XML"
+	else:
+		file_type = "Unknown"
+	
 	bulk_upload.append("items", {
 		"pdf_file": file_url,
 		"file_name": file_name,
+		"file_type": file_type,
 		"parse_status": "Pending"
 	})
 	

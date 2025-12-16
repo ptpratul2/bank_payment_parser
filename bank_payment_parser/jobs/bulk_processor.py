@@ -1,208 +1,138 @@
-"""
-Background job handlers for bulk PDF processing
-"""
+"""Background jobs for bulk Bank Payment Advice parsing (PDF + XML)."""
+from __future__ import annotations
+
+import os
 
 import frappe
 from frappe import _
-from frappe.utils import now
-from bank_payment_parser.api.upload import create_payment_advice
-from bank_payment_parser.services.parser_factory import get_parser
+from frappe.utils.file_manager import get_file
+
 from bank_payment_parser.services.ocr_utils import extract_text_from_pdf, get_pdf_file_path
+from bank_payment_parser.services.parser_factory import get_parser_for_file
+from bank_payment_parser.services.payment_advice_creator import create_payment_advice_from_parsed_data
 
 
 def enqueue_bulk_processing(bulk_upload_name: str, reprocess: bool = False):
+	"""Enqueue background jobs for all items in a bulk upload.
+
+	Each file is processed in its own job on the ``long`` queue.
 	"""
-	Enqueue background jobs for processing all items in bulk upload.
-	Each PDF is processed in a separate job.
-	
-	Args:
-		bulk_upload_name: Name of the Bank Payment Bulk Upload document
-		reprocess: If True, only process failed items
-	"""
-	# Get bulk upload document
 	bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
-	
-	# Determine which items to process
+
+	# Decide which items to process
 	if reprocess:
-		items_to_process = [item for item in bulk_upload.items if item.parse_status == "Failed"]
+		items = [it for it in bulk_upload.items if it.parse_status == "Failed"]
 	else:
-		items_to_process = [item for item in bulk_upload.items if item.parse_status == "Pending"]
-	
-	if not items_to_process:
-		frappe.log_error(
-			"No items to process in bulk upload",
-			"Bulk Upload Processing"
-		)
+		items = [it for it in bulk_upload.items if it.parse_status == "Pending"]
+
+	if not items:
+		frappe.log_error("No items to process in bulk upload", "Bulk Upload Processing")
 		return
-	
-	# Update status to Processing
+
 	bulk_upload.status = "Processing"
 	bulk_upload.save(ignore_permissions=True)
 	frappe.db.commit()
-	
-	# Enqueue individual jobs for each PDF
-	for item in items_to_process:
+
+	for it in items:
 		frappe.enqueue(
 			method="bank_payment_parser.jobs.bulk_processor.process_single_pdf",
 			queue="long",
-			job_name=f"Parse PDF: {item.file_name or item.name}",
-			timeout=300,  # 5 minutes per file
+			job_name=f"Parse File: {it.file_name or it.name}",
 			bulk_upload_name=bulk_upload_name,
-			item_name=item.name,
-			file_url=item.pdf_file,
-			customer=bulk_upload.customer
+			item_name=it.name,
+			file_url=it.pdf_file,
+			customer=bulk_upload.customer,
+			timeout=300,
 		)
-	
+
 	frappe.logger().info(
-		f"Enqueued {len(items_to_process)} PDF processing jobs for bulk upload {bulk_upload_name}"
+		f"Enqueued {len(items)} file(s) for bulk upload {bulk_upload_name}"
 	)
 
 
 @frappe.whitelist()
-def process_single_pdf(bulk_upload_name: str, item_name: str, file_url: str, customer: str = None):
+def process_single_pdf(
+	bulk_upload_name: str,
+	item_name: str,
+	file_url: str,
+	customer: str | None = None,
+):
+	"""Process a single bulk-uploaded file (PDF or XML).
+
+	The name is kept for backward compatibility with existing jobs.
 	"""
-	Process a single PDF from bulk upload.
-	This is called as a background job.
-	
-	Args:
-		bulk_upload_name: Name of the Bank Payment Bulk Upload document
-		item_name: Name of the Bank Payment Bulk Upload Item
-		file_url: URL of the PDF file
-		customer: Customer name (optional, will auto-detect if not provided)
-	
-	Returns:
-		None (updates child item directly)
-	"""
-	try:
-		# Get the child item
-		item = frappe.get_doc("Bank Payment Bulk Upload Item", item_name)
-		
-		# Validate file exists
-		if not file_url:
-			raise ValueError("File URL is required")
-		
-		# Get PDF path
+	# We deliberately keep the logic straightforward so that any
+	# exceptions are easy to see in the worker logs and console.
+	item = frappe.get_doc("Bank Payment Bulk Upload Item", item_name)
+
+	if not file_url:
+		raise ValueError("File URL is required")
+
+	# Detect file type from extension
+	ext = os.path.splitext(file_url or "")[1].lower()
+
+	# Load raw payload
+	if ext == ".pdf":
 		pdf_path = get_pdf_file_path(file_url)
 		if not pdf_path:
 			raise ValueError(f"PDF file not found: {file_url}")
-		
-		# Extract text from PDF
-		raw_text = extract_text_from_pdf(pdf_path, use_ocr=False)
-		if not raw_text or not raw_text.strip():
-			# Try with OCR if text extraction fails
-			raw_text = extract_text_from_pdf(pdf_path, use_ocr=True)
-			if not raw_text or not raw_text.strip():
+
+		raw_payload = extract_text_from_pdf(pdf_path, use_ocr=False)
+		if not raw_payload or not raw_payload.strip():
+			# Fallback to OCR
+			raw_payload = extract_text_from_pdf(pdf_path, use_ocr=True)
+			if not raw_payload or not raw_payload.strip():
 				raise ValueError("Could not extract text from PDF")
-		
-		# Get parser (reuse existing logic)
-		parser = get_parser(
-			pdf_path=pdf_path,
-			raw_text=raw_text,
-			user_selected_customer=customer
-		)
-		
-		# Parse PDF (reuse existing logic)
-		parsed_data = parser.parse()
-		
-		# Create Bank Payment Advice document (reuse existing logic)
-		payment_advice_doc = frappe.get_doc({
-			"doctype": "Bank Payment Advice",
-			"customer": customer or parsed_data.get("customer_name"),
-			"payment_document_no": parsed_data.get("payment_document_no"),
-			"payment_date": parsed_data.get("payment_date"),
-			"bank_reference_no": parsed_data.get("bank_reference_no"),
-			"utr_rrn_no": parsed_data.get("utr_rrn_no"),
-			"payment_amount": parsed_data.get("payment_amount", 0),
-			"beneficiary_name": parsed_data.get("beneficiary_name"),
-			"beneficiary_account_no": parsed_data.get("beneficiary_account_no"),
-			"bank_name": parsed_data.get("bank_name"),
-			"currency": parsed_data.get("currency", "INR"),
-			"remarks": parsed_data.get("remarks"),
-			"pdf_file": file_url,
-			"raw_text": parsed_data.get("raw_text"),
-			"parser_used": parsed_data.get("parser_used"),
-			"parse_version": parsed_data.get("parse_version"),
-			"parse_status": "Parsed"
-		})
-		
-		# Add invoice details if available
-		invoice_table_data = parsed_data.get("invoice_table_data", [])
-		total_amount = parsed_data.get("payment_amount", 0)
-		
-		if invoice_table_data:
-			amount_per_invoice = total_amount / len(invoice_table_data) if len(invoice_table_data) > 0 else 0
-			
-			for invoice_row in invoice_table_data:
-				if invoice_row.get("invoice_number_pf"):
-					payment_advice_doc.append("invoices", {
-						"invoice_number_pf": invoice_row.get("invoice_number_pf", ""),
-						"invoice_date_advanced_adjusted": invoice_row.get("invoice_date_advanced_adjusted", ""),
-						"tds_wct": invoice_row.get("tds_wct", 0.0),
-						"other_deductions_security_retention": invoice_row.get("other_deductions_security_retention", 0.0),
-						"amount": amount_per_invoice
-					})
-		
-		# Save payment advice
-		payment_advice_doc.insert(ignore_permissions=True)
-		frappe.db.commit()
-		
-		# Update child item with success - must update through parent
-		bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
-		bulk_upload.reload()
-		
-		# Find and update the child item
-		for child_item in bulk_upload.items:
-			if child_item.name == item_name:
-				child_item.parse_status = "Success"
-				child_item.parsed_document = payment_advice_doc.name
-				child_item.parser_used = parsed_data.get("parser_used", "Unknown")
-				child_item.error_message = ""
-				break
-		
-		# Save parent to persist child changes
-		bulk_upload.save(ignore_permissions=True)
-		frappe.db.commit()
-		
-		# Update parent status
-		bulk_upload.update_status()
-		
-		frappe.logger().info(
-			f"Successfully processed PDF {item.file_name} from bulk upload {bulk_upload_name}"
-		)
-		
-	except Exception as e:
-		# Capture error and update child item
-		error_message = str(e)
-		traceback_str = frappe.get_traceback()
-		
-		# Log error
-		frappe.log_error(
-			title="Bulk Upload Processing Error",
-			message=f"Error processing PDF {item_name}: {error_message}\n\n{traceback_str}"
-		)
-		
-		# Update child item with failure - must update through parent
-		try:
-			bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
-			bulk_upload.reload()
-			
-			# Find and update the child item
-			for child_item in bulk_upload.items:
-				if child_item.name == item_name:
-					child_item.parse_status = "Failed"
-					child_item.error_message = error_message[:500]  # Limit error message length
-					child_item.parsed_document = ""
-					child_item.parser_used = ""
-					break
-			
-			# Save parent to persist child changes
-			bulk_upload.save(ignore_permissions=True)
-			frappe.db.commit()
-			
-			# Update parent status
-			bulk_upload.update_status()
-		except Exception as update_error:
-			frappe.log_error(
-				title="Bulk Upload Status Update Error",
-				message=f"Error updating item status: {str(update_error)}\n\n{frappe.get_traceback()}"
-			)
+		file_type = "PDF"
+	elif ext == ".xml":
+		file_doc, content = get_file(file_url)
+		if isinstance(content, bytes):
+			raw_payload = content.decode("utf-8", errors="ignore")
+		else:
+			raw_payload = content or ""
+		file_type = "XML"
+	else:
+		raise ValueError(f"Unsupported file type: {ext or 'unknown'}")
+
+	# Route to appropriate parser
+	parser = get_parser_for_file(
+		file_url=file_url,
+		raw_payload=raw_payload,
+		user_selected_customer=customer,
+	)
+
+	parsed_data = parser.parse()
+
+	# Create Bank Payment Advice using centralized service
+	payment_advice = create_payment_advice_from_parsed_data(
+		parsed_data=parsed_data,
+		file_url=file_url,
+		file_type=file_type,
+		customer=customer,
+		bulk_upload_reference=bulk_upload_name,
+	)
+	
+	# Save the document
+	payment_advice.insert(ignore_permissions=True)
+	frappe.db.commit()
+
+	# Mark child item as success directly in DB (works even when parent is submitted)
+	frappe.db.set_value(
+		"Bank Payment Bulk Upload Item",
+		item_name,
+		{
+			"parse_status": "Success",
+			"parsed_document": payment_advice.name,
+			"parser_used": parsed_data.get("parser_used", "Unknown"),
+			"error_message": "",
+		},
+	)
+	frappe.db.commit()
+
+	# Update parent roll-up status
+	bulk_upload = frappe.get_doc("Bank Payment Bulk Upload", bulk_upload_name)
+	bulk_upload.update_status()
+
+	frappe.logger().info(
+		f"Successfully processed file {item.file_name} ({file_type}) from bulk upload {bulk_upload_name}"
+	)

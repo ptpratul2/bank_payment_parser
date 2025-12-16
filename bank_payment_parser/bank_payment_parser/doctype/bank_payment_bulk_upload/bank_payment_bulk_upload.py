@@ -13,8 +13,18 @@ class BankPaymentBulkUpload(frappe.model.document.Document):
 	
 	def validate(self):
 		"""Validate bulk upload record"""
+		# Allow saving an empty draft so that files can be added via the
+		# bulk upload dialog. Enforce at submit time only.
 		if not self.items:
-			frappe.throw(_("Please add at least one PDF file to upload"))
+			if self.docstatus == 0:
+				# Draft with no items is allowed
+				self.total_files = 0
+				self.processed_files = 0
+				self.success_count = 0
+				self.failed_count = 0
+				return
+			# On submit, at least one file (PDF or XML) is required
+			frappe.throw(_("Please add at least one file to upload"))
 		
 		# Set total files count
 		self.total_files = len(self.items)
@@ -109,3 +119,142 @@ class BankPaymentBulkUpload(frappe.model.document.Document):
 			indicator="blue",
 			alert=True
 		)
+	
+	def on_cancel(self):
+		"""Automatically cancel and delete all related Bank Payment Advice records.
+		
+		When a bulk upload is cancelled, all advice records created from it
+		must be cleaned up to prevent orphan records.
+		"""
+		self._cleanup_related_advice_records()
+	
+	def _cleanup_related_advice_records(self):
+		"""Cancel and delete all Bank Payment Advice records linked to this bulk upload.
+		
+		This method:
+		- Fetches all advice records via bulk_upload_reference
+		- Cancels each if submitted
+		- Force deletes each record (with child invoice rows)
+		- Logs failures but continues execution
+		- Commits safely
+		"""
+		# Fetch all related advice records
+		advice_names = frappe.get_all(
+			"Bank Payment Advice",
+			filters={"bulk_upload_reference": self.name},
+			fields=["name", "docstatus"],
+			pluck="name",
+		)
+		
+		if not advice_names:
+			frappe.logger().info(
+				f"No Bank Payment Advice records found for bulk upload {self.name}"
+			)
+			return
+		
+		frappe.logger().info(
+			f"Cleaning up {len(advice_names)} Bank Payment Advice record(s) for bulk upload {self.name}"
+		)
+		
+		success_count = 0
+		failed_count = 0
+		failed_records = []
+		
+		for advice_name in advice_names:
+			try:
+				# Check if document still exists (idempotency)
+				if not frappe.db.exists("Bank Payment Advice", advice_name):
+					frappe.logger().info(
+						f"Bank Payment Advice {advice_name} already deleted, skipping"
+					)
+					success_count += 1
+					continue
+				
+				# Get the advice document
+				advice_doc = frappe.get_doc("Bank Payment Advice", advice_name)
+				
+				# Cancel if submitted (docstatus = 1)
+				if advice_doc.docstatus == 1:
+					try:
+						advice_doc.cancel()
+						frappe.db.commit()
+						frappe.logger().info(
+							f"Cancelled Bank Payment Advice {advice_name} before deletion"
+						)
+					except Exception as cancel_error:
+						# Log but continue - we'll try to force delete anyway
+						frappe.log_error(
+							title=f"Error cancelling Bank Payment Advice {advice_name}",
+							message=f"Failed to cancel advice {advice_name}: {str(cancel_error)}\n\n{frappe.get_traceback()}"
+						)
+				
+				# Force delete the advice record
+				# This will automatically delete child invoice rows
+				# Set flag to allow deletion (bypasses on_trash prevention)
+				frappe.flags.bulk_cleanup = True
+				try:
+					frappe.delete_doc(
+						doctype="Bank Payment Advice",
+						name=advice_name,
+						force=True,  # Bypass link checks
+						ignore_permissions=True,  # Bypass permission checks
+					)
+				finally:
+					# Clear flag after deletion attempt
+					frappe.flags.bulk_cleanup = False
+				
+				success_count += 1
+				frappe.logger().info(
+					f"Successfully deleted Bank Payment Advice {advice_name}"
+				)
+				
+			except frappe.DoesNotExistError:
+				# Document already deleted (race condition or idempotent retry)
+				frappe.logger().info(
+					f"Bank Payment Advice {advice_name} does not exist, skipping"
+				)
+				success_count += 1
+			except Exception as e:
+				failed_count += 1
+				failed_records.append(advice_name)
+				
+				# Log error but continue with other records
+				frappe.log_error(
+					title=f"Error deleting Bank Payment Advice {advice_name}",
+					message=f"Failed to delete advice {advice_name} from bulk upload {self.name}: {str(e)}\n\n{frappe.get_traceback()}"
+				)
+		
+		# Commit all deletions
+		try:
+			frappe.db.commit()
+		except Exception as commit_error:
+			frappe.log_error(
+				title="Error committing advice deletions",
+				message=f"Failed to commit deletions for bulk upload {self.name}: {str(commit_error)}\n\n{frappe.get_traceback()}"
+			)
+		
+		# Log summary
+		if failed_count > 0:
+			frappe.logger().warning(
+				f"Bulk upload {self.name}: Deleted {success_count} advice record(s), "
+				f"failed to delete {failed_count} record(s): {', '.join(failed_records)}"
+			)
+		else:
+			frappe.logger().info(
+				f"Bulk upload {self.name}: Successfully deleted all {success_count} advice record(s)"
+			)
+		
+		# Show user-friendly message
+		if success_count > 0:
+			frappe.msgprint(
+				_("Deleted {0} related Bank Payment Advice record(s)").format(success_count),
+				indicator="green",
+				alert=True
+			)
+		
+		if failed_count > 0:
+			frappe.msgprint(
+				_("Warning: Failed to delete {0} advice record(s). Please check Error Log.").format(failed_count),
+				indicator="orange",
+				alert=True
+			)

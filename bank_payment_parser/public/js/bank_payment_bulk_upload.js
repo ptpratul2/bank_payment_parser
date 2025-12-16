@@ -109,9 +109,9 @@ function show_upload_dialog(frm) {
 								<line x1="12" y1="3" x2="12" y2="15"></line>
 							</svg>
 							<br>
-							${__('Drag and drop PDF files here or click to browse')}
+							${__('Drag and drop PDF / XML files here or click to browse')}
 						</p>
-						<input type="file" id="bulk-file-input" multiple accept=".pdf" style="display: none;">
+						<input type="file" id="bulk-file-input" multiple accept=".pdf,.xml" style="display: none;">
 						<button class="btn btn-primary" onclick="document.getElementById('bulk-file-input').click()">
 							${__('Select Files')}
 						</button>
@@ -198,23 +198,29 @@ function setup_file_input(dialog, frm) {
 function handle_files(files, selected_files, file_list) {
 	let added = 0;
 	Array.from(files).forEach(file => {
-		if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+		const name = file.name.toLowerCase();
+		const mime = (file.type || '').toLowerCase();
+
+		const is_pdf = mime === 'application/pdf' || name.endsWith('.pdf');
+		const is_xml = mime === 'application/xml' || mime === 'text/xml' || name.endsWith('.xml');
+
+		if (is_pdf || is_xml) {
 			// Check if already selected
 			if (!selected_files.find(f => f.name === file.name && f.size === file.size)) {
 				selected_files.push(file);
 				added++;
 			}
 		} else {
-			console.warn('Skipping non-PDF file:', file.name);
+			console.warn('Skipping unsupported file (only PDF/XML allowed):', file.name);
 		}
 	});
 	
 	if (added > 0) {
 		update_file_list(selected_files, file_list);
-		console.log('Added', added, 'PDF file(s). Total:', selected_files.length);
+		console.log('Added', added, 'file(s). Total:', selected_files.length);
 	} else if (files.length > 0) {
 		frappe.show_alert({
-			message: __('No new PDF files to add'),
+			message: __('No new PDF/XML files to add'),
 			indicator: 'orange'
 		});
 	}

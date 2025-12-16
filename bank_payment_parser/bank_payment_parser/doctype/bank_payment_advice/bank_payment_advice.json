@@ -16,7 +16,14 @@
   "bank_reference_no",
   "utr_rrn_no",
   "payment_amount",
+  "gross_payment_amount",
+  "total_tds_amount",
+  "total_received_amount",
   "currency",
+  "column_break_accounting",
+  "payment_method",
+  "payer_name",
+  "payer_city",
   "parse_info_section",
   "parser_used",
   "parse_version",
@@ -33,7 +40,14 @@
   "invoices_section",
   "invoices",
   "raw_data_section",
-  "raw_text"
+  "raw_text",
+  "file_type",
+  "parser_type",
+  "source_format",
+  "bulk_upload_reference",
+  "raw_payload",
+  "payment_entry",
+  "amended_from"
  ],
  "fields": [
   {
@@ -95,6 +109,48 @@
    "fieldtype": "Link",
    "label": "Currency",
    "options": "Currency"
+  },
+  {
+   "fieldname": "column_break_accounting",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gross_payment_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Gross Payment Amount"
+  },
+  {
+   "fieldname": "total_tds_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Total TDS Amount"
+  },
+  {
+   "fieldname": "total_received_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Total Received Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "label": "Payment Method",
+   "options": "ACH\nWire Transfer\nCheck\nOther"
+  },
+  {
+   "fieldname": "payer_name",
+   "fieldtype": "Data",
+   "label": "Payer Name"
+  },
+  {
+   "fieldname": "payer_city",
+   "fieldtype": "Data",
+   "label": "Payer City"
   },
   {
    "fieldname": "parse_info_section",
@@ -189,11 +245,63 @@
    "label": "Raw Text",
    "options": "Text",
    "read_only": 1
+  },
+  {
+   "fieldname": "file_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "File Type",
+   "options": "PDF\nXML",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parser_type",
+   "fieldtype": "Data",
+   "label": "Parser Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_format",
+   "fieldtype": "Data",
+   "label": "Source Format",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bulk_upload_reference",
+   "fieldtype": "Link",
+   "label": "Bulk Upload Reference",
+   "options": "Bank Payment Bulk Upload",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raw_payload",
+   "fieldtype": "Long Text",
+   "label": "Raw Payload",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Bank Payment Advice",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
- "modified": "2025-12-13 09:01:09.949695",
+ "modified": "2025-12-16 08:05:08.058942",
  "modified_by": "Administrator",
  "module": "Bank Payment Parser",
  "name": "Bank Payment Advice",
