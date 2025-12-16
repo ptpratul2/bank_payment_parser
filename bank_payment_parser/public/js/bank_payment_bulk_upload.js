@@ -406,8 +406,9 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 			data: form_data,
 			processData: false,
 			contentType: false,
+			timeout: 300000, // 5 minutes timeout for large files
 			headers: {
-				'X-Frappe-CSRF-Token': frappe.csrf_token
+				'X-Frappe-CSRF-Token': frappe.csrf_token || frappe.boot.csrf_token
 			},
 			success: function(r) {
 				uploaded++;
@@ -460,11 +461,26 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 					upload_next(index + 1);
 				}
 			},
-			error: function(r) {
+			error: function(r, textStatus, errorThrown) {
 				uploaded++;
-				// Extract error message from various possible response formats
+				
+				// Handle different error scenarios
 				let error_msg = 'Unknown error';
-				if (r.responseJSON) {
+				
+				// readyState 0 means request was aborted or network error
+				if (r.readyState === 0) {
+					if (textStatus === 'abort') {
+						error_msg = 'Upload was aborted';
+					} else if (textStatus === 'timeout') {
+						error_msg = 'Upload timed out';
+					} else if (textStatus === 'error') {
+						error_msg = 'Network error - please check your connection';
+					} else {
+						error_msg = `Network error: ${textStatus || errorThrown || 'Connection failed'}`;
+					}
+				}
+				// Extract error message from various possible response formats
+				else if (r.responseJSON) {
 					if (r.responseJSON.message) {
 						if (typeof r.responseJSON.message === 'string') {
 							error_msg = r.responseJSON.message;
@@ -489,10 +505,24 @@ function upload_file_contents(frm, bulk_upload_name, files, dialog) {
 					}
 				} else if (r.status) {
 					error_msg = `HTTP ${r.status}: ${r.statusText || 'Request failed'}`;
+				} else if (textStatus) {
+					error_msg = textStatus;
+				} else if (errorThrown) {
+					error_msg = errorThrown;
 				}
 				
-				console.error('Error uploading file:', file.name, error_msg);
-				console.error('Full error response:', r);
+				console.error('Error uploading file:', file.name);
+				console.error('Error details:', {
+					readyState: r.readyState,
+					status: r.status,
+					statusText: r.statusText,
+					textStatus: textStatus,
+					errorThrown: errorThrown,
+					responseJSON: r.responseJSON,
+					responseText: r.responseText,
+					error_msg: error_msg
+				});
+				
 				upload_errors.push(file.name);
 				
 				// Show user-friendly error message
